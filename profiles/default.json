@@ -1,0 +1,116 @@
+{
+  "_comment": "proxmox-atd :: Default Hardware Profile (JSON) -- ASUS desktop identity",
+  "_version": "1.0.0",
+
+  "brand": {
+    "name": "ASUS",
+    "_constraint": "Must be exactly 4 uppercase ASCII characters"
+  },
+
+  "smbios_type0": {
+    "vendor": "American Megatrends International LLC.",
+    "version": "H3.7G",
+    "date": "02/21/2023",
+    "release_major": 3,
+    "release_minor": 7
+  },
+
+  "smbios_type1": {
+    "manufacturer": "ASUS",
+    "product": "PRIME B760M-A",
+    "version": "VER:H3.7G(2022/11/29)",
+    "serial": "Default string",
+    "sku": "Default string",
+    "family": "Default string"
+  },
+
+  "smbios_type2": {
+    "manufacturer": "ASUS",
+    "product": "PRIME B760M-A",
+    "version": "VER:H3.7G(2022/11/29)",
+    "serial": "Default string",
+    "asset": "Default string",
+    "location": "Default string"
+  },
+
+  "smbios_type3": {
+    "manufacturer": "Default string",
+    "version": "Default string",
+    "serial": "Default string",
+    "asset": "Default string",
+    "sku": "Default string"
+  },
+
+  "smbios_type4": {
+    "manufacturer": "Intel(R) Corporation",
+    "version": "12th Gen Intel(R) 0000",
+    "socket_prefix": "LGA1700",
+    "max_speed": 4900,
+    "current_speed": 3800,
+    "processor_family": "0xC6",
+    "l1_cache_handle": "0x0039",
+    "l2_cache_handle": "0x003A",
+    "l3_cache_handle": "0x003B",
+    "voltage": "0x8B",
+    "external_clock": 100,
+    "processor_characteristics": "0x04"
+  },
+
+  "smbios_type17": {
+    "serial": "DF1EC466",
+    "asset": "9876543210",
+    "memory_type": "0x18",
+    "total_width": 64,
+    "data_width": 64,
+    "minimum_voltage": 1350,
+    "maximum_voltage": 1500,
+    "configured_voltage": 1350,
+    "location": "0x03",
+    "error_correction": "0x03",
+    "speed": 3200,
+    "manufacturer": "KINGSTON",
+    "part": "SED3200U1888S",
+    "bank": "BANK 0",
+    "loc_prefix": "Controller0-ChannelA-DIMM"
+  },
+
+  "disk": {
+    "power_on_hours": "0x029a",
+    "power_cycle_count": "0x029a"
+  },
+
+  "display": {
+    "vendor": "DEL",
+    "monitor_name": "ASUS Monitor",
+    "model_nr": "0xA05F"
+  },
+
+  "network": {
+    "mac_prefix": "D8:FC:93",
+    "nic_model": "e1000"
+  },
+
+  "acpi": {
+    "fadt_revision": 4,
+    "ssdt_revision": 3,
+    "c_state_latency": "0x1fff"
+  },
+
+  "kvm": {
+    "hypervisor_string": "\\1\\0\\0\\0\\0\\0\\0\\0\\0\\0\\0\\0",
+    "rdtsc_divisor": 20
+  },
+
+  "vm_config": {
+    "bios": "ovmf",
+    "machine": "q35",
+    "memory": 16384,
+    "cores": 8,
+    "sockets": 1,
+    "cpu": "host",
+    "balloon": 0,
+    "ostype": "l26",
+    "boot_order": "ide2;sata0;net0",
+    "disk_size": "128G"
+  }
+}
