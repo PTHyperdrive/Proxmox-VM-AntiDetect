@@ -373,6 +373,45 @@ phase_patch() {
 
         patch_edk2_brand "${EDK2_DIR}" "${BRAND}" || (( PATCH_ERRORS++ ))
 
+        # Fix EDK2 BaseTools GenMake.py for Python 3.13 compatibility (CmdSumDict KeyError)
+        local genmake="${EDK2_DIR}/BaseTools/Source/Python/AutoGen/GenMake.py"
+        if [[ -f "${genmake}" ]]; then
+            if ! grep -q 'CmdSumDict\.get(' "${genmake}" 2>/dev/null; then
+                atd_info "Patching GenMake.py for Python 3.13 compatibility ..."
+                if (( ATD_DRY_RUN )); then
+                    atd_dry "Fix CmdSumDict KeyError in ${genmake}"
+                else
+                    python3 -c "
+import sys
+f = sys.argv[1]
+c = open(f).read()
+c = c.replace(
+    'CmdSumDict[CmdSign[3:].rsplit(TAB_SLASH, 1)[0]]',
+    'CmdSumDict.get(CmdSign[3:].rsplit(TAB_SLASH, 1)[0], \"\")'
+)
+open(f, 'w').write(c)
+" "${genmake}"
+                    atd_debug "Patched GenMake.py CmdSumDict KeyError fix"
+                fi
+            else
+                atd_skip "GenMake.py already patched for Python 3.13"
+            fi
+        else
+            atd_warn "GenMake.py not found at ${genmake}, skipping Python 3.13 fix"
+        fi
+
+        # Disable TDX build target (not needed for anti-detection, fails on most setups)
+        local edk2_rules="${edk2_parent}/debian/rules"
+        if [[ -f "${edk2_rules}" ]] && grep -q 'build-ovmf-tdx' "${edk2_rules}" 2>/dev/null; then
+            atd_info "Disabling TDX build target in debian/rules ..."
+            if (( ATD_DRY_RUN )); then
+                atd_dry "Remove build-ovmf-tdx from ${edk2_rules}"
+            else
+                sed -i 's/ build-ovmf-tdx//g' "${edk2_rules}"
+                atd_debug "Removed build-ovmf-tdx from debian/rules"
+            fi
+        fi
+
         # Generate diff for reference
         if (( ! ATD_DRY_RUN )); then
             pushd "${EDK2_DIR}" > /dev/null
