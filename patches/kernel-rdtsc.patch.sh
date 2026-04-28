@@ -25,8 +25,8 @@ patch_kernel_rdtsc() {
     # are best applied via the maintained kernel.patch file rather than
     # individual sed operations. This ensures correctness across kernel versions.
 
-    local patch_file
-    patch_file="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/pve-emu-realpc_kernel-main/kernel.patch"
+    local resource_dir="${ATD_RESOURCE_KERNEL:-${ATD_SCRIPT_DIR}/pve-emu-realpc_kernel-main}"
+    local patch_file="${resource_dir}/kernel.patch"
 
     if [[ ! -f "${patch_file}" ]]; then
         atd_err "kernel.patch not found at ${patch_file}"

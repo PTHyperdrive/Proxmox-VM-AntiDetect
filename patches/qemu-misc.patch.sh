@@ -18,10 +18,9 @@ patch_qemu_misc() {
 
     # -- Copy custom SMBIOS implementation --
     (( count++ )); atd_step ${count} ${total} "Custom smbios.h + smbios.c (extended types)"
-    local project_root
-    project_root="$(dirname "$(dirname "${BASH_SOURCE[0]}")")"
-    local smbios_h_src="${project_root}/pve-emu-realpc-main/smbios.h"
-    local smbios_c_src="${project_root}/pve-emu-realpc-main/smbios.c"
+    local resource_dir="${ATD_RESOURCE_QEMU:-${ATD_SCRIPT_DIR}/pve-emu-realpc-main}"
+    local smbios_h_src="${resource_dir}/smbios.h"
+    local smbios_c_src="${resource_dir}/smbios.c"
 
     if [[ -f "${smbios_h_src}" ]]; then
         if (( ATD_DRY_RUN )); then
@@ -38,7 +37,7 @@ patch_qemu_misc() {
 
     # -- Copy custom bootsplash --
     (( count++ )); atd_step ${count} ${total} "Custom bootsplash.jpg"
-    local splash_src="${project_root}/pve-emu-realpc-main/bootsplash.jpg"
+    local splash_src="${resource_dir}/bootsplash.jpg"
     if [[ -f "${splash_src}" ]]; then
         if (( ATD_DRY_RUN )); then
             atd_dry "cp ${splash_src} -> ${src}/pc-bios/bootsplash.jpg"
