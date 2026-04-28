@@ -564,8 +564,53 @@ atd_timer_stop "Full pipeline"
 
 atd_banner "COMPLETE" "Build finished"
 if (( ! SKIP_BUILD )); then
-    atd_ok "Artifacts ready in: ${BUILD_DIR}/artifacts/"
-    atd_info "Install with: dpkg -i ${BUILD_DIR}/artifacts/*.deb"
+    local artifacts="${BUILD_DIR}/artifacts"
+    atd_ok "Artifacts ready in: ${artifacts}/"
+
+    # List .deb files
+    if (( ! ATD_DRY_RUN )) && [[ -d "${artifacts}" ]]; then
+        echo ""
+        atd_info "Built packages:"
+        find "${artifacts}" -name '*.deb' -printf '  %f\n' 2>/dev/null | sort
+
+        echo ""
+        atd_separator "Installation Commands"
+        echo ""
+
+        if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+            local qemu_deb
+            qemu_deb="$(find "${artifacts}" -name 'pve-qemu-kvm_*.deb' 2>/dev/null | head -1)"
+            if [[ -n "${qemu_deb}" ]]; then
+                atd_info "QEMU:   dpkg -i ${qemu_deb}"
+            fi
+        fi
+
+        if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+            local edk2_deb
+            edk2_deb="$(find "${artifacts}" -name 'pve-edk2-firmware-ovmf_*.deb' 2>/dev/null | head -1)"
+            if [[ -n "${edk2_deb}" ]]; then
+                atd_info "EDK2:   dpkg -i ${edk2_deb}"
+            fi
+        fi
+
+        if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+            local kernel_debs
+            kernel_debs="$(find "${artifacts}" -name 'pve-kernel-*.deb' 2>/dev/null | tr '\n' ' ')"
+            if [[ -n "${kernel_debs}" ]]; then
+                atd_info "Kernel: dpkg -i ${kernel_debs}"
+            fi
+        fi
+
+        # ACPI tables
+        if ls "${artifacts}"/*.aml 1>/dev/null 2>&1; then
+            echo ""
+            atd_info "ACPI tables: cp ${artifacts}/*.aml /usr/share/kvm/"
+        fi
+
+        echo ""
+        atd_info "Or install everything at once:"
+        atd_info "  dpkg -i ${artifacts}/*.deb"
+    fi
 else
     atd_ok "Patches applied. Sources ready for manual build."
 fi

@@ -73,20 +73,20 @@ patch_qemu_brand() {
         "s/\"QEMU/\"${brand}/g" \
         "ACPI core brand"
 
-    # -- ARM --
+    # -- ARM (nseries removed in newer QEMU) --
     (( count++ )); atd_step ${count} ${total} "hw/arm/nseries.c"
     atd_sed "${src}/hw/arm/nseries.c" \
         "s/QEMU N800/${brand} N800/g" \
-        "N800 name"
+        "N800 name" --allow-missing
     atd_sed "${src}/hw/arm/nseries.c" \
         "s/QEMU LCD panel/${brand} LCD panel/g" \
-        "LCD panel name"
+        "LCD panel name" --allow-missing
     atd_sed "${src}/hw/arm/nseries.c" \
         "s/strcpy((void *) w, \"QEMU \")/strcpy((void *) w, \"${brand} \")/g" \
-        "nseries OEM"
+        "nseries OEM" --allow-missing
     atd_sed "${src}/hw/arm/nseries.c" \
         "s/\"1.1.10-qemu\" : \"1.1.6-qemu\"/\"1.1.10-asus\" : \"1.1.6-asus\"/g" \
-        "nseries version"
+        "nseries version" --allow-missing
 
     (( count++ )); atd_step ${count} ${total} "hw/arm/sbsa-ref.c"
     atd_sed "${src}/hw/arm/sbsa-ref.c" \
@@ -166,7 +166,7 @@ patch_qemu_brand() {
     for f in "${input_files[@]}"; do
         atd_sed "${src}/${f}" \
             "s/\"QEMU/\"${brand}/g" \
-            "Input device brand in $(basename "${f}")"
+            "Input device brand in $(basename "${f}")" --allow-missing
     done
     atd_sed "${src}/hw/input/virtio-input-hid.c" \
         "s/\"QEMU Virtio/\"${brand}/g" \
