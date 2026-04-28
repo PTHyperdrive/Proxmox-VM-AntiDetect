@@ -62,10 +62,19 @@ patch_qemu_acpi() {
         "FADT inner revision -> ${fadt_rev}"
 
     # -- FADT sleep control/status registers --
+    # NOTE: uses single-quoted sed to avoid bash/sed & backreference issues.
+    # Only replace FIRST occurrence (no /g flag) to prevent cascading corruption.
     (( count++ )); atd_step ${count} ${total} "hw/acpi/aml-build.c (FADT sleep regs)"
-    atd_sed "${src}/hw/acpi/aml-build.c" \
-        "s/if (f->rev <= 4) {/if (f->rev <= 6) {\n\t\tbuild_append_gas_from_struct(tbl, \\\&f->sleep_ctl);\n\t\tbuild_append_gas_from_struct(tbl, \\\&f->sleep_sts);/g" \
-        "Add FADT sleep control/status registers"
+    if ! atd_already_patched "${src}/hw/acpi/aml-build.c" "rev <= 6"; then
+        if (( ATD_DRY_RUN )); then
+            atd_dry "sed -i 's/if (f->rev <= 4) {/...add sleep_ctl+sleep_sts.../' ${src}/hw/acpi/aml-build.c"
+        else
+            sed -i '0,/if (f->rev <= 4) {/{s/if (f->rev <= 4) {/if (f->rev <= 6) {\n\t\tbuild_append_gas_from_struct(tbl, \&f->sleep_ctl);\n\t\tbuild_append_gas_from_struct(tbl, \&f->sleep_sts);/}' "${src}/hw/acpi/aml-build.c"
+            atd_debug "Patched: FADT sleep control/status registers"
+        fi
+    else
+        atd_skip "FADT sleep registers already patched"
+    fi
 
     # -- C-state latency --
     (( count++ )); atd_step ${count} ${total} "hw/i386/acpi-build.c (C-state latency)"

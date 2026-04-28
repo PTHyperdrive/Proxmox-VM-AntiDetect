@@ -169,10 +169,10 @@ if [[ ${#BRAND} -ne 4 ]]; then
 fi
 
 # ===== Resolve Source Directories =====
-# If not explicitly given, sources live in BUILD_DIR after cloning
-[[ -z "${QEMU_DIR}" ]]   && QEMU_DIR="${BUILD_DIR}/pve-qemu/qemu"
-[[ -z "${EDK2_DIR}" ]]   && EDK2_DIR="${BUILD_DIR}/pve-edk2-firmware/edk2"
-[[ -z "${KERNEL_DIR}" ]] && KERNEL_DIR="${BUILD_DIR}/pve-kernel/submodules/ubuntu-kernel"
+# If not explicitly given, sources are cloned inside their resource directories
+[[ -z "${QEMU_DIR}" ]]   && QEMU_DIR="${RESOURCE_QEMU}/pve-qemu/qemu"
+[[ -z "${EDK2_DIR}" ]]   && EDK2_DIR="${RESOURCE_EDK2}/pve-edk2-firmware/edk2"
+[[ -z "${KERNEL_DIR}" ]] && KERNEL_DIR="${RESOURCE_KERNEL}/pve-kernel/submodules/ubuntu-kernel"
 
 # ===== Export resource paths for patch modules =====
 export ATD_RESOURCE_QEMU="${RESOURCE_QEMU}"
@@ -265,44 +265,44 @@ phase_clone() {
 
     # --- QEMU ---
     if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
-        if [[ ! -d "${BUILD_DIR}/pve-qemu" ]]; then
+        if [[ ! -d "${RESOURCE_QEMU}/pve-qemu" ]]; then
             atd_step 1 3 "Cloning pve-qemu ..."
-            run_cmd "git clone git://git.proxmox.com/git/pve-qemu.git ${BUILD_DIR}/pve-qemu"
+            run_cmd "git clone git://git.proxmox.com/git/pve-qemu.git ${RESOURCE_QEMU}/pve-qemu"
         else
             atd_skip "pve-qemu already exists"
         fi
         atd_info "Setting up pve-qemu submodules + build-deps ..."
-        run_cmd "cd ${BUILD_DIR}/pve-qemu && yes | mk-build-deps --install 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu && git submodule update --init --recursive"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu/qemu && meson subprojects download 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && yes | mk-build-deps --install 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && git submodule update --init --recursive"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu/qemu && meson subprojects download 2>/dev/null || true"
     fi
 
     # --- EDK2 ---
     if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
-        if [[ ! -d "${BUILD_DIR}/pve-edk2-firmware" ]]; then
+        if [[ ! -d "${RESOURCE_EDK2}/pve-edk2-firmware" ]]; then
             atd_step 2 3 "Cloning pve-edk2-firmware ..."
-            run_cmd "git clone git://git.proxmox.com/git/pve-edk2-firmware.git ${BUILD_DIR}/pve-edk2-firmware"
+            run_cmd "git clone git://git.proxmox.com/git/pve-edk2-firmware.git ${RESOURCE_EDK2}/pve-edk2-firmware"
         else
             atd_skip "pve-edk2-firmware already exists"
         fi
         atd_info "Setting up pve-edk2-firmware submodules + build-deps ..."
-        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware && yes | mk-build-deps --install 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware && git submodule update --init --recursive"
-        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware/edk2 && meson subprojects download 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_EDK2}/pve-edk2-firmware && yes | mk-build-deps --install 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_EDK2}/pve-edk2-firmware && git submodule update --init --recursive"
+        run_cmd "cd ${RESOURCE_EDK2}/pve-edk2-firmware/edk2 && meson subprojects download 2>/dev/null || true"
     fi
 
     # --- Kernel ---
     if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
-        if [[ ! -d "${BUILD_DIR}/pve-kernel" ]]; then
+        if [[ ! -d "${RESOURCE_KERNEL}/pve-kernel" ]]; then
             atd_step 3 3 "Cloning pve-kernel ..."
-            run_cmd "git clone git://git.proxmox.com/git/pve-kernel.git ${BUILD_DIR}/pve-kernel"
+            run_cmd "git clone git://git.proxmox.com/git/pve-kernel.git ${RESOURCE_KERNEL}/pve-kernel"
         else
             atd_skip "pve-kernel already exists"
         fi
         atd_info "Setting up pve-kernel submodules + build-deps ..."
-        run_cmd "cd ${BUILD_DIR}/pve-kernel && mk-build-deps --install 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-kernel && git submodule update --init --recursive --force"
-        run_cmd "cd ${BUILD_DIR}/pve-kernel/submodules/zfsonlinux && mk-build-deps --install 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && mk-build-deps --install 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && git submodule update --init --recursive --force"
+        run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel/submodules/zfsonlinux && mk-build-deps --install 2>/dev/null || true"
     fi
 
     atd_ok "Repositories ready"
@@ -340,7 +340,7 @@ phase_patch() {
         # Generate diff for reference
         if (( ! ATD_DRY_RUN )); then
             pushd "${QEMU_DIR}" > /dev/null
-            git diff --submodule=diff > "${BUILD_DIR}/pve-qemu/qemu-autoGenPatch.patch" 2>/dev/null || true
+            git diff --submodule=diff > "${RESOURCE_QEMU}/pve-qemu/qemu-autoGenPatch.patch" 2>/dev/null || true
             popd > /dev/null
             atd_info "Generated qemu-autoGenPatch.patch"
         fi
@@ -376,7 +376,7 @@ phase_patch() {
         # Generate diff for reference
         if (( ! ATD_DRY_RUN )); then
             pushd "${EDK2_DIR}" > /dev/null
-            git diff > "${BUILD_DIR}/pve-edk2-firmware/edk2-autoGenPatch.patch" 2>/dev/null || true
+            git diff > "${RESOURCE_EDK2}/pve-edk2-firmware/edk2-autoGenPatch.patch" 2>/dev/null || true
             popd > /dev/null
             atd_info "Generated edk2-autoGenPatch.patch"
         fi
@@ -399,7 +399,7 @@ phase_patch() {
         # Generate diff for reference
         if (( ! ATD_DRY_RUN )); then
             pushd "${KERNEL_DIR}" > /dev/null
-            git diff > "${BUILD_DIR}/pve-kernel/kernel-autoGenPatch.patch" 2>/dev/null || true
+            git diff > "${RESOURCE_KERNEL}/pve-kernel/kernel-autoGenPatch.patch" 2>/dev/null || true
             popd > /dev/null
             atd_info "Generated kernel-autoGenPatch.patch"
         fi
@@ -429,22 +429,22 @@ phase_build() {
     # --- QEMU ---
     if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-qemu-kvm"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu && make clean 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu && make -j${JOBS}"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && make clean 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && make -j${JOBS}"
         atd_ok "QEMU build complete"
     fi
 
     # --- EDK2 ---
     if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-edk2-firmware-ovmf"
-        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware && make -j${JOBS}"
+        run_cmd "cd ${RESOURCE_EDK2}/pve-edk2-firmware && make -j${JOBS}"
         atd_ok "EDK2 build complete"
     fi
 
     # --- Kernel ---
     if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-kernel"
-        run_cmd "cd ${BUILD_DIR}/pve-kernel && make -j${JOBS}"
+        run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && make -j${JOBS}"
         atd_ok "Kernel build complete"
     fi
 
@@ -466,19 +466,19 @@ phase_collect() {
     run_cmd "mkdir -p ${artifacts}"
 
     if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
-        run_cmd "find ${BUILD_DIR}/pve-qemu -maxdepth 1 -name '*.deb' ! -name '*dbgsym*' -exec cp {} ${artifacts}/ \\;"
-        run_cmd "cp ${BUILD_DIR}/pve-qemu/qemu-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
+        run_cmd "find ${RESOURCE_QEMU}/pve-qemu -maxdepth 1 -name '*.deb' ! -name '*dbgsym*' -exec cp {} ${artifacts}/ \\;"
+        run_cmd "cp ${RESOURCE_QEMU}/pve-qemu/qemu-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
     fi
 
     if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
-        run_cmd "find ${BUILD_DIR}/pve-edk2-firmware -maxdepth 1 -name '*.deb' ! -name '*legacy*' ! -name '*aarch64*' ! -name '*deps*' ! -name '*riscv*' -exec cp {} ${artifacts}/ \\;"
-        run_cmd "cp ${BUILD_DIR}/pve-edk2-firmware/edk2-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
+        run_cmd "find ${RESOURCE_EDK2}/pve-edk2-firmware -maxdepth 1 -name '*.deb' ! -name '*legacy*' ! -name '*aarch64*' ! -name '*deps*' ! -name '*riscv*' -exec cp {} ${artifacts}/ \\;"
+        run_cmd "cp ${RESOURCE_EDK2}/pve-edk2-firmware/edk2-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
     fi
 
     if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
-        run_cmd "find ${BUILD_DIR}/pve-kernel -maxdepth 1 -name '*.deb' -exec cp {} ${artifacts}/ \\;"
-        run_cmd "find ${BUILD_DIR}/pve-kernel -name 'kvm*.ko' -exec cp {} ${artifacts}/ \\; 2>/dev/null || true"
-        run_cmd "cp ${BUILD_DIR}/pve-kernel/kernel-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
+        run_cmd "find ${RESOURCE_KERNEL}/pve-kernel -maxdepth 1 -name '*.deb' -exec cp {} ${artifacts}/ \\;"
+        run_cmd "find ${RESOURCE_KERNEL}/pve-kernel -name 'kvm*.ko' -exec cp {} ${artifacts}/ \\; 2>/dev/null || true"
+        run_cmd "cp ${RESOURCE_KERNEL}/pve-kernel/kernel-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
     fi
 
     # Copy ACPI tables from resources
@@ -512,23 +512,23 @@ phase_cleanup() {
 
     if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_info "Resetting pve-qemu ..."
-        run_cmd "cd ${BUILD_DIR}/pve-qemu/qemu && git checkout . 2>/dev/null || true"
-        run_cmd "rm -rf ${BUILD_DIR}/pve-qemu/qemu/pc-bios 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu && git reset --hard master 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu && git submodule update --init --recursive --force 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu && git checkout . 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu/qemu && git checkout . 2>/dev/null || true"
-        run_cmd "cd ${BUILD_DIR}/pve-qemu/qemu && git submodule update --init --recursive --force 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu/qemu && git checkout . 2>/dev/null || true"
+        run_cmd "rm -rf ${RESOURCE_QEMU}/pve-qemu/qemu/pc-bios 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && git reset --hard master 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && git submodule update --init --recursive --force 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && git checkout . 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu/qemu && git checkout . 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu/qemu && git submodule update --init --recursive --force 2>/dev/null || true"
     fi
 
     if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_info "Resetting pve-edk2-firmware ..."
-        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware/edk2 && git checkout . 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_EDK2}/pve-edk2-firmware/edk2 && git checkout . 2>/dev/null || true"
     fi
 
     if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_info "Resetting pve-kernel ..."
-        run_cmd "cd ${BUILD_DIR}/pve-kernel/submodules/ubuntu-kernel && git checkout . 2>/dev/null || true"
+        run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel/submodules/ubuntu-kernel && git checkout . 2>/dev/null || true"
     fi
 
     atd_ok "Cleanup complete"
