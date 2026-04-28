@@ -309,28 +309,13 @@ phase_patch() {
     local patcher_args=(
         --profile "${PROFILE}"
         --target "${TARGET}"
+        --build-dir "${OUTPUT_DIR}"
         --no-backup
+        --skip-deps
+        --skip-clone
+        --skip-build
+        --skip-cleanup
     )
-
-    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
-        patcher_args+=(--qemu-dir "${OUTPUT_DIR}/pve-qemu/qemu")
-        # Meson subprojects
-        run_cmd "cd ${OUTPUT_DIR}/pve-qemu/qemu && meson subprojects download 2>/dev/null || true"
-    fi
-
-    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
-        patcher_args+=(--edk2-dir "${OUTPUT_DIR}/pve-edk2-firmware/edk2")
-        run_cmd "cd ${OUTPUT_DIR}/pve-edk2-firmware/edk2 && meson subprojects download 2>/dev/null || true"
-        # Copy logo
-        local logo="${SCRIPT_DIR}/pve-emu-realpc_edk2-firmware-ovmf-main/Logo.bmp"
-        if [[ -f "${logo}" ]]; then
-            run_cmd "cp ${logo} ${OUTPUT_DIR}/pve-edk2-firmware/debian/"
-        fi
-    fi
-
-    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
-        patcher_args+=(--kernel-dir "${OUTPUT_DIR}/pve-kernel/submodules/ubuntu-kernel")
-    fi
 
     if (( ATD_DRY_RUN )); then
         patcher_args+=(--dry-run)
@@ -340,22 +325,6 @@ phase_patch() {
     fi
 
     bash "${SCRIPT_DIR}/atd-patcher.sh" "${patcher_args[@]}"
-
-    # Generate diff patches for reference
-    if (( ! ATD_DRY_RUN )); then
-        if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
-            pushd "${OUTPUT_DIR}/pve-qemu/qemu" > /dev/null
-            git diff --submodule=diff > "${OUTPUT_DIR}/qemu-autoGenPatch.patch" 2>/dev/null || true
-            popd > /dev/null
-            atd_info "Generated qemu-autoGenPatch.patch"
-        fi
-        if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
-            pushd "${OUTPUT_DIR}/pve-edk2-firmware/edk2" > /dev/null
-            git diff > "${OUTPUT_DIR}/edk2-autoGenPatch.patch" 2>/dev/null || true
-            popd > /dev/null
-            atd_info "Generated edk2-autoGenPatch.patch"
-        fi
-    fi
 
     atd_ok "Patching phase complete"
 }

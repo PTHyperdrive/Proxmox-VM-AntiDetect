@@ -3,8 +3,8 @@
 #  proxmox-atd :: Custom Patcher Engine
 #  Config-driven patching for QEMU, EDK2, and Kernel sources
 #
-#  All configs, patches, and resource files are resolved relative
-#  to this script's own directory. No external paths required.
+#  Self-contained: clones repos, installs deps, patches, builds,
+#  and collects artifacts -- all from its own folder.
 #
 #  Usage: ./atd-patcher.sh [options]
 #    --profile <file>    Config profile (.conf or .json)
@@ -12,13 +12,19 @@
 #    --qemu-dir <path>   Override QEMU source directory
 #    --edk2-dir <path>   Override EDK2 source directory
 #    --kernel-dir <path> Override Kernel source directory
-#    --build-dir <path>  Override build output root (probed automatically)
+#    --build-dir <path>  Where to clone/build (default: <script-dir>)
+#    --jobs <n>           Parallel make jobs (default: nproc)
+#    --skip-deps         Skip apt dependency installation
+#    --skip-clone        Skip git clone (use existing sources)
+#    --skip-build        Only patch, do not build .deb packages
+#    --skip-cleanup      Keep patched sources after build
 #    --dry-run           Show commands without executing
 #    --rollback <dir>    Rollback from backup directory
 #    --no-backup         Skip pre-patch backup
 #    --verbose           Enable debug output
 #    --help              Show this help
 #
+#  REMOTE EXECUTION ONLY -- run on your Proxmox build server
 #  Part of: https://github.com/proxmox-atd
 # ---------------------------------------------------------------
 set -euo pipefail
@@ -32,9 +38,14 @@ TARGET="all"
 QEMU_DIR=""
 EDK2_DIR=""
 KERNEL_DIR=""
-BUILD_DIR=""
+BUILD_DIR="${SCRIPT_DIR}"
+JOBS="$(nproc 2>/dev/null || echo 4)"
 NO_BACKUP=0
 DO_ROLLBACK=""
+SKIP_DEPS=0
+SKIP_CLONE=0
+SKIP_BUILD=0
+SKIP_CLEANUP=0
 
 # ===== Resource Directories (resolved from SCRIPT_DIR) =====
 RESOURCE_QEMU="${SCRIPT_DIR}/pve-emu-realpc-main"
@@ -43,6 +54,10 @@ RESOURCE_KERNEL="${SCRIPT_DIR}/pve-emu-realpc_kernel-main"
 PROFILES_DIR="${SCRIPT_DIR}/profiles"
 PATCHES_DIR="${SCRIPT_DIR}/patches"
 
+# ===== Build timestamp =====
+BUILD_TS="$(date +%Y%m%d-%H%M%S)"
+ATD_LOG_FILE="${SCRIPT_DIR}/atd-patcher-${BUILD_TS}.log"
+
 # ===== Usage =====
 usage() {
     cat <<EOF
@@ -50,47 +65,43 @@ Usage: $(basename "$0") [options]
 
 Options:
   --profile <file>      Config profile (.conf or .json)
-                        Default: auto-detects from ${PROFILES_DIR}/
+                        Default: auto-detects from profiles/
   --target <target>     qemu|edk2|kernel|all (default: all)
-  --qemu-dir <path>     Override QEMU source directory
-  --edk2-dir <path>     Override EDK2 source directory
-  --kernel-dir <path>   Override kernel source directory
-  --build-dir <path>    Override build output root (for auto-discovery)
+  --qemu-dir <path>     Override QEMU source dir (skip clone for QEMU)
+  --edk2-dir <path>     Override EDK2 source dir (skip clone for EDK2)
+  --kernel-dir <path>   Override kernel source dir (skip clone for kernel)
+  --build-dir <path>    Where to clone and build (default: script directory)
+  --jobs <n>            Parallel make jobs (default: $(nproc 2>/dev/null || echo 4))
+  --skip-deps           Skip apt dependency installation
+  --skip-clone          Skip git clone (use existing sources)
+  --skip-build          Only apply patches, do not compile
+  --skip-cleanup        Keep patched sources after build
   --dry-run             Preview all changes without modifying files
   --rollback <dir>      Restore files from a backup directory
   --no-backup           Skip creating file backups before patching
   --verbose             Enable debug-level logging
   --help                Show this help message
 
-Auto-Discovery:
-  The patcher automatically resolves all paths relative to its own directory.
-  Source directories are probed in this order:
-    1. Explicit --qemu-dir / --edk2-dir / --kernel-dir flags
-    2. <build-dir>/pve-qemu/qemu , <build-dir>/pve-edk2-firmware/edk2, etc.
-    3. <script-dir>/build-output/pve-qemu/qemu, etc.
-    4. <script-dir>/pve-qemu/qemu, etc.
-
-  Resource files (smbios.c/.h, bootsplash.jpg, kernel.patch, Logo.bmp,
-  ACPI .aml files) are resolved from the repo's bundled directories:
-    ${RESOURCE_QEMU}/
-    ${RESOURCE_EDK2}/
-    ${RESOURCE_KERNEL}/
+Workflow (executed in order):
+  1. DEPS      Install build dependencies via apt
+  2. CLONE     Clone proxmox git repos + submodules
+  3. PATCH     Apply anti-detection sed patches + copy resources
+  4. BUILD     Compile .deb packages with make
+  5. COLLECT   Gather .deb artifacts into build-dir/artifacts/
+  6. CLEANUP   Reset git trees to pristine state
 
 Examples:
-  # Auto-discover everything from the repo folder
-  ./atd-patcher.sh --target all
+  # Full workflow: clone, patch, build everything
+  sudo ./atd-patcher.sh
 
-  # Dry run with default profile
-  ./atd-patcher.sh --dry-run --target qemu
+  # Only QEMU, skip deps (already installed)
+  sudo ./atd-patcher.sh --target qemu --skip-deps
 
-  # Use a specific build output dir
-  ./atd-patcher.sh --build-dir /root/build-output --target all
+  # Patch only, no build
+  ./atd-patcher.sh --target qemu --skip-clone --qemu-dir ./pve-qemu/qemu --skip-build
 
-  # Full patch with custom profile
-  ./atd-patcher.sh --profile profiles/example-intel-desktop.conf --target all
-
-  # Rollback
-  ./atd-patcher.sh --rollback .atd-backup/20260428-153341
+  # Use custom profile
+  sudo ./atd-patcher.sh --profile profiles/example-intel-desktop.conf
 EOF
     exit 0
 }
@@ -104,6 +115,11 @@ while [[ $# -gt 0 ]]; do
         --edk2-dir)    EDK2_DIR="$2"; shift 2 ;;
         --kernel-dir)  KERNEL_DIR="$2"; shift 2 ;;
         --build-dir)   BUILD_DIR="$2"; shift 2 ;;
+        --jobs)        JOBS="$2"; shift 2 ;;
+        --skip-deps)   SKIP_DEPS=1; shift ;;
+        --skip-clone)  SKIP_CLONE=1; shift ;;
+        --skip-build)  SKIP_BUILD=1; shift ;;
+        --skip-cleanup) SKIP_CLEANUP=1; shift ;;
         --dry-run)     ATD_DRY_RUN=1; shift ;;
         --rollback)    DO_ROLLBACK="$2"; shift 2 ;;
         --no-backup)   NO_BACKUP=1; shift ;;
@@ -112,6 +128,15 @@ while [[ $# -gt 0 ]]; do
         *)             atd_die "Unknown option: $1" 2 ;;
     esac
 done
+
+# ===== Dry-run command wrapper =====
+run_cmd() {
+    if (( ATD_DRY_RUN )); then
+        atd_dry "$*"
+    else
+        eval "$@"
+    fi
+}
 
 # ===== Rollback Mode =====
 if [[ -n "${DO_ROLLBACK}" ]]; then
@@ -122,18 +147,15 @@ fi
 
 # ===== Auto-Discover Profile =====
 if [[ -z "${PROFILE}" ]]; then
-    # Default profile: prefer .conf, fall back to .json
     if [[ -f "${PROFILES_DIR}/default.conf" ]]; then
         PROFILE="${PROFILES_DIR}/default.conf"
     elif [[ -f "${PROFILES_DIR}/default.json" ]]; then
         PROFILE="${PROFILES_DIR}/default.json"
     else
-        # Use first available profile
         PROFILE="$(find "${PROFILES_DIR}" -maxdepth 1 \( -name '*.conf' -o -name '*.json' \) 2>/dev/null | head -1)"
     fi
 fi
 
-# ===== Validate Profile =====
 if [[ -z "${PROFILE}" ]] || [[ ! -f "${PROFILE}" ]]; then
     atd_die "Profile not found. Searched in: ${PROFILES_DIR}/" 2
 fi
@@ -146,60 +168,17 @@ if [[ ${#BRAND} -ne 4 ]]; then
     atd_die "Brand must be exactly 4 characters, got '${BRAND}' (${#BRAND} chars)" 2
 fi
 
-# ===== Auto-Discover Source Directories =====
-# Probe common locations relative to SCRIPT_DIR for each source tree.
-# Priority: explicit flag > build-dir > build-output > script-dir root
-_probe_source_dir() {
-    local label="$1"
-    shift
-    local candidates=("$@")
+# ===== Resolve Source Directories =====
+# If not explicitly given, sources live in BUILD_DIR after cloning
+[[ -z "${QEMU_DIR}" ]]   && QEMU_DIR="${BUILD_DIR}/pve-qemu/qemu"
+[[ -z "${EDK2_DIR}" ]]   && EDK2_DIR="${BUILD_DIR}/pve-edk2-firmware/edk2"
+[[ -z "${KERNEL_DIR}" ]] && KERNEL_DIR="${BUILD_DIR}/pve-kernel/submodules/ubuntu-kernel"
 
-    for dir in "${candidates[@]}"; do
-        if [[ -d "${dir}" ]]; then
-            atd_debug "Auto-discovered ${label} at: ${dir}"
-            echo "${dir}"
-            return 0
-        fi
-    done
-    echo ""
-    return 0
-}
-
-# Resolve build-dir (explicit or auto-probed)
-if [[ -z "${BUILD_DIR}" ]]; then
-    if [[ -d "${SCRIPT_DIR}/build-output" ]]; then
-        BUILD_DIR="${SCRIPT_DIR}/build-output"
-    else
-        BUILD_DIR="${SCRIPT_DIR}"
-    fi
-fi
-
-# Auto-discover QEMU source
-if [[ -z "${QEMU_DIR}" ]]; then
-    QEMU_DIR="$(_probe_source_dir "QEMU" \
-        "${BUILD_DIR}/pve-qemu/qemu" \
-        "${SCRIPT_DIR}/build-output/pve-qemu/qemu" \
-        "${SCRIPT_DIR}/pve-qemu/qemu" \
-    )"
-fi
-
-# Auto-discover EDK2 source
-if [[ -z "${EDK2_DIR}" ]]; then
-    EDK2_DIR="$(_probe_source_dir "EDK2" \
-        "${BUILD_DIR}/pve-edk2-firmware/edk2" \
-        "${SCRIPT_DIR}/build-output/pve-edk2-firmware/edk2" \
-        "${SCRIPT_DIR}/pve-edk2-firmware/edk2" \
-    )"
-fi
-
-# Auto-discover Kernel source
-if [[ -z "${KERNEL_DIR}" ]]; then
-    KERNEL_DIR="$(_probe_source_dir "Kernel" \
-        "${BUILD_DIR}/pve-kernel/submodules/ubuntu-kernel" \
-        "${SCRIPT_DIR}/build-output/pve-kernel/submodules/ubuntu-kernel" \
-        "${SCRIPT_DIR}/pve-kernel/submodules/ubuntu-kernel" \
-    )"
-fi
+# ===== Export resource paths for patch modules =====
+export ATD_RESOURCE_QEMU="${RESOURCE_QEMU}"
+export ATD_RESOURCE_EDK2="${RESOURCE_EDK2}"
+export ATD_RESOURCE_KERNEL="${RESOURCE_KERNEL}"
+export ATD_SCRIPT_DIR="${SCRIPT_DIR}"
 
 # ===== Header =====
 atd_banner "PATCHER" "proxmox-atd Custom Patcher Engine"
@@ -207,19 +186,13 @@ atd_summary "Patcher Configuration" \
     "Profile"       "${PROFILE}" \
     "Target"        "${TARGET}" \
     "Brand"         "${BRAND}" \
-    "QEMU Dir"      "${QEMU_DIR:-<not found>}" \
-    "EDK2 Dir"      "${EDK2_DIR:-<not found>}" \
-    "Kernel Dir"    "${KERNEL_DIR:-<not found>}" \
-    "Resources"     "${SCRIPT_DIR}/" \
+    "Build Dir"     "${BUILD_DIR}" \
+    "QEMU Dir"      "${QEMU_DIR}" \
+    "EDK2 Dir"      "${EDK2_DIR}" \
+    "Kernel Dir"    "${KERNEL_DIR}" \
+    "Jobs"          "${JOBS}" \
     "Dry Run"       "$( (( ATD_DRY_RUN )) && echo 'YES' || echo 'no')" \
     "Log Level"     "${ATD_LOG_LEVEL}"
-
-# ===== Export resource paths for patch modules =====
-# Patch modules can reference these instead of computing paths themselves
-export ATD_RESOURCE_QEMU="${RESOURCE_QEMU}"
-export ATD_RESOURCE_EDK2="${RESOURCE_EDK2}"
-export ATD_RESOURCE_KERNEL="${RESOURCE_KERNEL}"
-export ATD_SCRIPT_DIR="${SCRIPT_DIR}"
 
 # ===== Source Patch Modules =====
 for module in "${PATCHES_DIR}/"*.patch.sh; do
@@ -229,24 +202,128 @@ for module in "${PATCHES_DIR}/"*.patch.sh; do
     fi
 done
 
-# ===== Patch Execution =====
-PATCH_ERRORS=0
-atd_timer_start
+# =============================================================
+#  PHASE 1: DEPENDENCIES
+# =============================================================
+phase_deps() {
+    atd_banner "PHASE 1" "Installing Build Dependencies"
 
-# --- QEMU ---
-if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
-    if [[ -z "${QEMU_DIR}" ]]; then
-        atd_warn "QEMU source not found -- searched:"
-        atd_warn "  ${BUILD_DIR}/pve-qemu/qemu"
-        atd_warn "  ${SCRIPT_DIR}/build-output/pve-qemu/qemu"
-        atd_warn "  ${SCRIPT_DIR}/pve-qemu/qemu"
-        atd_warn "Use --qemu-dir to specify manually, or --build-dir to set root"
-    elif [[ ! -d "${QEMU_DIR}" ]]; then
-        atd_die "QEMU source directory not found: ${QEMU_DIR}" 2
-    else
+    if (( SKIP_DEPS )); then
+        atd_skip "Dependency installation skipped (--skip-deps)"
+        return 0
+    fi
+
+    local DEPS=(
+        build-essential git devscripts meson quilt
+        libacl1-dev libaio-dev libattr1-dev libcap-ng-dev
+        libcurl4-gnutls-dev libepoxy-dev libfdt-dev libgbm-dev
+        libgnutls28-dev libiscsi-dev libjpeg-dev libnuma-dev
+        libpci-dev libpixman-1-dev librbd-dev libsdl1.2-dev
+        libseccomp-dev libslirp-dev libspice-protocol-dev
+        libspice-server-dev libsystemd-dev liburing-dev
+        libusb-1.0-0-dev libusbredirparser-dev libvirglrenderer-dev
+        python3-sphinx python3-sphinx-rtd-theme xfslibs-dev
+    )
+
+    # PVE-specific
+    if command -v pveversion &>/dev/null; then
+        DEPS+=(libproxmox-backup-qemu0-dev)
+    fi
+
+    # EDK2-specific
+    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+        DEPS+=(gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu)
+    fi
+
+    # Kernel-specific
+    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+        DEPS+=(
+            dh-python asciidoc-base bison dwarves flex
+            libdw-dev libelf-dev libiberty-dev libslang2-dev
+            lz4 python3-dev xmlto rsync gawk
+        )
+    fi
+
+    atd_info "Installing ${#DEPS[@]} packages ..."
+    run_cmd "apt-get update -qq"
+    run_cmd "apt-get install -y -qq ${DEPS[*]}"
+    run_cmd "apt-get install -y devscripts"
+
+    atd_ok "Dependencies installed"
+}
+
+# =============================================================
+#  PHASE 2: CLONE
+# =============================================================
+phase_clone() {
+    atd_banner "PHASE 2" "Cloning Upstream Repositories"
+
+    if (( SKIP_CLONE )); then
+        atd_skip "Clone skipped (--skip-clone)"
+        return 0
+    fi
+
+    # --- QEMU ---
+    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+        if [[ ! -d "${BUILD_DIR}/pve-qemu" ]]; then
+            atd_step 1 3 "Cloning pve-qemu ..."
+            run_cmd "git clone git://git.proxmox.com/git/pve-qemu.git ${BUILD_DIR}/pve-qemu"
+        else
+            atd_skip "pve-qemu already exists"
+        fi
+        atd_info "Setting up pve-qemu submodules + build-deps ..."
+        run_cmd "cd ${BUILD_DIR}/pve-qemu && yes | mk-build-deps --install 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu && git submodule update --init --recursive"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu/qemu && meson subprojects download 2>/dev/null || true"
+    fi
+
+    # --- EDK2 ---
+    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+        if [[ ! -d "${BUILD_DIR}/pve-edk2-firmware" ]]; then
+            atd_step 2 3 "Cloning pve-edk2-firmware ..."
+            run_cmd "git clone git://git.proxmox.com/git/pve-edk2-firmware.git ${BUILD_DIR}/pve-edk2-firmware"
+        else
+            atd_skip "pve-edk2-firmware already exists"
+        fi
+        atd_info "Setting up pve-edk2-firmware submodules + build-deps ..."
+        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware && yes | mk-build-deps --install 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware && git submodule update --init --recursive"
+        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware/edk2 && meson subprojects download 2>/dev/null || true"
+    fi
+
+    # --- Kernel ---
+    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+        if [[ ! -d "${BUILD_DIR}/pve-kernel" ]]; then
+            atd_step 3 3 "Cloning pve-kernel ..."
+            run_cmd "git clone git://git.proxmox.com/git/pve-kernel.git ${BUILD_DIR}/pve-kernel"
+        else
+            atd_skip "pve-kernel already exists"
+        fi
+        atd_info "Setting up pve-kernel submodules + build-deps ..."
+        run_cmd "cd ${BUILD_DIR}/pve-kernel && mk-build-deps --install 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-kernel && git submodule update --init --recursive --force"
+        run_cmd "cd ${BUILD_DIR}/pve-kernel/submodules/zfsonlinux && mk-build-deps --install 2>/dev/null || true"
+    fi
+
+    atd_ok "Repositories ready"
+}
+
+# =============================================================
+#  PHASE 3: PATCH
+# =============================================================
+phase_patch() {
+    atd_banner "PHASE 3" "Applying Anti-Detection Patches"
+
+    local PATCH_ERRORS=0
+
+    # --- QEMU ---
+    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+        if [[ ! -d "${QEMU_DIR}" ]]; then
+            atd_die "QEMU source directory not found: ${QEMU_DIR}" 2
+        fi
+
         atd_banner "QEMU" "Patching QEMU Source"
 
-        # Backup
         if (( ! NO_BACKUP )) && (( ! ATD_DRY_RUN )); then
             atd_backup_init "${SCRIPT_DIR}"
         fi
@@ -259,41 +336,58 @@ if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
         patch_qemu_pci_ids "${QEMU_DIR}" "${PROFILE}"    || (( PATCH_ERRORS++ ))
         patch_qemu_kvm_cpuid "${QEMU_DIR}" "${PROFILE}"  || (( PATCH_ERRORS++ ))
         patch_qemu_misc "${QEMU_DIR}" "${PROFILE}"       || (( PATCH_ERRORS++ ))
-    fi
-fi
 
-# --- EDK2 ---
-if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
-    if [[ -z "${EDK2_DIR}" ]]; then
-        atd_warn "EDK2 source not found -- searched:"
-        atd_warn "  ${BUILD_DIR}/pve-edk2-firmware/edk2"
-        atd_warn "  ${SCRIPT_DIR}/build-output/pve-edk2-firmware/edk2"
-        atd_warn "  ${SCRIPT_DIR}/pve-edk2-firmware/edk2"
-        atd_warn "Use --edk2-dir to specify manually, or --build-dir to set root"
-    elif [[ ! -d "${EDK2_DIR}" ]]; then
-        atd_die "EDK2 source directory not found: ${EDK2_DIR}" 2
-    else
+        # Generate diff for reference
+        if (( ! ATD_DRY_RUN )); then
+            pushd "${QEMU_DIR}" > /dev/null
+            git diff --submodule=diff > "${BUILD_DIR}/pve-qemu/qemu-autoGenPatch.patch" 2>/dev/null || true
+            popd > /dev/null
+            atd_info "Generated qemu-autoGenPatch.patch"
+        fi
+    fi
+
+    # --- EDK2 ---
+    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+        if [[ ! -d "${EDK2_DIR}" ]]; then
+            atd_die "EDK2 source directory not found: ${EDK2_DIR}" 2
+        fi
+
         atd_banner "EDK2" "Patching EDK2/OVMF Firmware"
 
         if (( ! NO_BACKUP )) && (( ! ATD_DRY_RUN )); then
             atd_backup_init "${SCRIPT_DIR}"
         fi
 
-        patch_edk2_brand "${EDK2_DIR}" "${BRAND}" || (( PATCH_ERRORS++ ))
-    fi
-fi
+        # Copy Logo.bmp to debian/ (replaces boot logo)
+        local logo_src="${RESOURCE_EDK2}/Logo.bmp"
+        if [[ -f "${logo_src}" ]]; then
+            local edk2_parent
+            edk2_parent="$(dirname "${EDK2_DIR}")"
+            if (( ATD_DRY_RUN )); then
+                atd_dry "cp ${logo_src} -> ${edk2_parent}/debian/Logo.bmp"
+            else
+                cp "${logo_src}" "${edk2_parent}/debian/" 2>/dev/null || true
+                atd_debug "Copied Logo.bmp to debian/"
+            fi
+        fi
 
-# --- Kernel ---
-if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
-    if [[ -z "${KERNEL_DIR}" ]]; then
-        atd_warn "Kernel source not found -- searched:"
-        atd_warn "  ${BUILD_DIR}/pve-kernel/submodules/ubuntu-kernel"
-        atd_warn "  ${SCRIPT_DIR}/build-output/pve-kernel/submodules/ubuntu-kernel"
-        atd_warn "  ${SCRIPT_DIR}/pve-kernel/submodules/ubuntu-kernel"
-        atd_warn "Use --kernel-dir to specify manually, or --build-dir to set root"
-    elif [[ ! -d "${KERNEL_DIR}" ]]; then
-        atd_die "Kernel source directory not found: ${KERNEL_DIR}" 2
-    else
+        patch_edk2_brand "${EDK2_DIR}" "${BRAND}" || (( PATCH_ERRORS++ ))
+
+        # Generate diff for reference
+        if (( ! ATD_DRY_RUN )); then
+            pushd "${EDK2_DIR}" > /dev/null
+            git diff > "${BUILD_DIR}/pve-edk2-firmware/edk2-autoGenPatch.patch" 2>/dev/null || true
+            popd > /dev/null
+            atd_info "Generated edk2-autoGenPatch.patch"
+        fi
+    fi
+
+    # --- Kernel ---
+    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+        if [[ ! -d "${KERNEL_DIR}" ]]; then
+            atd_die "Kernel source directory not found: ${KERNEL_DIR}" 2
+        fi
+
         atd_banner "KERNEL" "Patching PVE Kernel KVM Modules"
 
         if (( ! NO_BACKUP )) && (( ! ATD_DRY_RUN )); then
@@ -301,16 +395,180 @@ if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
         fi
 
         patch_kernel_rdtsc "${KERNEL_DIR}" "${PROFILE}" || (( PATCH_ERRORS++ ))
+
+        # Generate diff for reference
+        if (( ! ATD_DRY_RUN )); then
+            pushd "${KERNEL_DIR}" > /dev/null
+            git diff > "${BUILD_DIR}/pve-kernel/kernel-autoGenPatch.patch" 2>/dev/null || true
+            popd > /dev/null
+            atd_info "Generated kernel-autoGenPatch.patch"
+        fi
     fi
-fi
 
-# ===== Summary =====
-atd_timer_stop "Patcher"
+    if (( PATCH_ERRORS > 0 )); then
+        atd_err "Patching completed with ${PATCH_ERRORS} error(s)"
+        return 4
+    fi
 
-if (( PATCH_ERRORS > 0 )); then
-    atd_err "Completed with ${PATCH_ERRORS} error(s)"
-    exit 4
-else
     atd_ok "All patches applied successfully"
-    exit 0
+}
+
+# =============================================================
+#  PHASE 4: BUILD
+# =============================================================
+phase_build() {
+    atd_banner "PHASE 4" "Compiling Packages"
+
+    if (( SKIP_BUILD )); then
+        atd_skip "Build skipped (--skip-build)"
+        return 0
+    fi
+
+    atd_timer_start
+
+    # --- QEMU ---
+    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+        atd_separator "Building pve-qemu-kvm"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu && make clean 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu && make -j${JOBS}"
+        atd_ok "QEMU build complete"
+    fi
+
+    # --- EDK2 ---
+    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+        atd_separator "Building pve-edk2-firmware-ovmf"
+        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware && make -j${JOBS}"
+        atd_ok "EDK2 build complete"
+    fi
+
+    # --- Kernel ---
+    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+        atd_separator "Building pve-kernel"
+        run_cmd "cd ${BUILD_DIR}/pve-kernel && make -j${JOBS}"
+        atd_ok "Kernel build complete"
+    fi
+
+    atd_timer_stop "Build phase"
+}
+
+# =============================================================
+#  PHASE 5: COLLECT ARTIFACTS
+# =============================================================
+phase_collect() {
+    atd_banner "PHASE 5" "Collecting Build Artifacts"
+
+    if (( SKIP_BUILD )); then
+        atd_skip "Artifact collection skipped (no build was performed)"
+        return 0
+    fi
+
+    local artifacts="${BUILD_DIR}/artifacts"
+    run_cmd "mkdir -p ${artifacts}"
+
+    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+        run_cmd "find ${BUILD_DIR}/pve-qemu -maxdepth 1 -name '*.deb' ! -name '*dbgsym*' -exec cp {} ${artifacts}/ \\;"
+        run_cmd "cp ${BUILD_DIR}/pve-qemu/qemu-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
+    fi
+
+    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+        run_cmd "find ${BUILD_DIR}/pve-edk2-firmware -maxdepth 1 -name '*.deb' ! -name '*legacy*' ! -name '*aarch64*' ! -name '*deps*' ! -name '*riscv*' -exec cp {} ${artifacts}/ \\;"
+        run_cmd "cp ${BUILD_DIR}/pve-edk2-firmware/edk2-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
+    fi
+
+    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+        run_cmd "find ${BUILD_DIR}/pve-kernel -maxdepth 1 -name '*.deb' -exec cp {} ${artifacts}/ \\;"
+        run_cmd "find ${BUILD_DIR}/pve-kernel -name 'kvm*.ko' -exec cp {} ${artifacts}/ \\; 2>/dev/null || true"
+        run_cmd "cp ${BUILD_DIR}/pve-kernel/kernel-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
+    fi
+
+    # Copy ACPI tables from resources
+    run_cmd "cp ${RESOURCE_QEMU}/*.aml ${artifacts}/ 2>/dev/null || true"
+
+    if (( ! ATD_DRY_RUN )); then
+        atd_info "Artifacts in ${artifacts}/:"
+        ls -lh "${artifacts}/" 2>/dev/null | while read -r line; do
+            atd_info "  ${line}"
+        done
+    fi
+
+    atd_ok "Artifacts collected"
+}
+
+# =============================================================
+#  PHASE 6: CLEANUP
+# =============================================================
+phase_cleanup() {
+    atd_banner "PHASE 6" "Restoring Source Trees"
+
+    if (( SKIP_CLEANUP )); then
+        atd_skip "Cleanup skipped (--skip-cleanup)"
+        return 0
+    fi
+
+    if (( SKIP_BUILD )); then
+        atd_skip "Cleanup skipped (no build was performed)"
+        return 0
+    fi
+
+    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+        atd_info "Resetting pve-qemu ..."
+        run_cmd "cd ${BUILD_DIR}/pve-qemu/qemu && git checkout . 2>/dev/null || true"
+        run_cmd "rm -rf ${BUILD_DIR}/pve-qemu/qemu/pc-bios 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu && git reset --hard master 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu && git submodule update --init --recursive --force 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu && git checkout . 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu/qemu && git checkout . 2>/dev/null || true"
+        run_cmd "cd ${BUILD_DIR}/pve-qemu/qemu && git submodule update --init --recursive --force 2>/dev/null || true"
+    fi
+
+    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+        atd_info "Resetting pve-edk2-firmware ..."
+        run_cmd "cd ${BUILD_DIR}/pve-edk2-firmware/edk2 && git checkout . 2>/dev/null || true"
+    fi
+
+    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+        atd_info "Resetting pve-kernel ..."
+        run_cmd "cd ${BUILD_DIR}/pve-kernel/submodules/ubuntu-kernel && git checkout . 2>/dev/null || true"
+    fi
+
+    atd_ok "Cleanup complete"
+}
+
+# =============================================================
+#  MAIN EXECUTION
+# =============================================================
+atd_timer_start
+
+# Trap for error reporting
+CURRENT_PHASE=""
+cleanup_on_error() {
+    local exit_code=$?
+    if (( exit_code != 0 )) && [[ -n "${CURRENT_PHASE}" ]]; then
+        atd_err "Failed during: ${CURRENT_PHASE}"
+        atd_err "Log file: ${ATD_LOG_FILE}"
+    fi
+}
+trap cleanup_on_error EXIT
+
+# Execute phases
+CURRENT_PHASE="deps";    phase_deps
+CURRENT_PHASE="clone";   phase_clone
+CURRENT_PHASE="patch";   phase_patch
+CURRENT_PHASE="build";   phase_build
+CURRENT_PHASE="collect"; phase_collect
+CURRENT_PHASE="cleanup"; phase_cleanup
+CURRENT_PHASE=""
+
+# ===== Final Summary =====
+atd_timer_stop "Full pipeline"
+
+atd_banner "COMPLETE" "Build finished"
+if (( ! SKIP_BUILD )); then
+    atd_ok "Artifacts ready in: ${BUILD_DIR}/artifacts/"
+    atd_info "Install with: dpkg -i ${BUILD_DIR}/artifacts/*.deb"
+else
+    atd_ok "Patches applied. Sources ready for manual build."
 fi
+
+trap - EXIT
+exit 0
