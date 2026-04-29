@@ -8,9 +8,10 @@ git clone -b trixie-6.17 git://git.proxmox.com/git/pve-kernel.git
 cd pve-kernel
 # For a specific version, uncomment and set the commit hash:
 apt install devscripts -y
-mk-build-deps --install
-git submodule update --init --recursive --force #强制更新所有子模块
-git pull #强制更新到最新版本内核
+git submodule update --init --recursive --force
+# Generate debian/control for trixie+ branches (uses control.in)
+[ ! -f debian/control ] && [ -f debian/control.in ] && (make debian/control 2>/dev/null || cp debian/control.in debian/control)
+yes | mk-build-deps --install
 cd submodules/zfsonlinux/
 mk-build-deps --install
 cd ../..

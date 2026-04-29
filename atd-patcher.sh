@@ -314,10 +314,21 @@ phase_clone() {
                 run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && git checkout ${kernel_branch} 2>/dev/null || git fetch origin ${kernel_branch} && git checkout ${kernel_branch}"
             fi
         fi
-        atd_info "Setting up pve-kernel submodules + build-deps ..."
-        run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && mk-build-deps --install 2>/dev/null || true"
+        atd_info "Setting up pve-kernel submodules ..."
         run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && git submodule update --init --recursive --force"
-        run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel/submodules/zfsonlinux && mk-build-deps --install 2>/dev/null || true"
+
+        # Newer pve-kernel branches (trixie+) use debian/control.in — generate debian/control
+        local _kdir="${RESOURCE_KERNEL}/pve-kernel"
+        if [[ ! -f "${_kdir}/debian/control" ]] && [[ -f "${_kdir}/debian/control.in" ]]; then
+            atd_info "Generating debian/control from debian/control.in ..."
+            run_cmd "cd ${_kdir} && make debian/control 2>/dev/null || cp debian/control.in debian/control"
+        fi
+
+        atd_info "Installing pve-kernel build-deps ..."
+        run_cmd "cd ${_kdir} && yes | mk-build-deps --install 2>/dev/null || true"
+        if [[ -d "${_kdir}/submodules/zfsonlinux" ]]; then
+            run_cmd "cd ${_kdir}/submodules/zfsonlinux && mk-build-deps --install 2>/dev/null || true"
+        fi
     fi
 
     atd_ok "Repositories ready"
