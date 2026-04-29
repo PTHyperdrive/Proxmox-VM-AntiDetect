@@ -21,9 +21,10 @@ patch_qemu_brand() {
     local brand_acpi16="${brand}${brand}${brand}${brand}"
 
     # Build hex fw_cfg magic from brand ("QEMU CFG" = 0x51454d5520434647)
-    # Format: first 4 chars of brand + " CFG" in big-endian hex
+    # Format: 4 brand chars in hex + 0x20434647 (" CFG") -- pure bash, no xxd needed
     local brand_hex
-    brand_hex="0x$(printf '%s CFG' "${brand}" | xxd -p | tr -d '\n' | tr '[:lower:]' '[:upper:]')ULL"
+    brand_hex=$(printf '0x%02X%02X%02X%02X20434647ULL' \
+        "'${brand:0:1}" "'${brand:1:1}" "'${brand:2:1}" "'${brand:3:1}")
 
     # Read EDID vendor from config or derive from brand (3-char PNP code)
     local edid_vendor

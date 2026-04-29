@@ -6,7 +6,8 @@ brand="${ATD_BRAND:-ASUS}" # Read from ATD profile or default to ASUS (4 upperca
 brand_lower="$(echo "${brand}" | tr '[:upper:]' '[:lower:]')"
 brand_acpi14="${brand}${brand:0:2}${brand}${brand:0:2}"
 brand_acpi16="${brand}${brand}${brand}${brand}"
-brand_hex="0x$(printf '%s CFG' "${brand}" | xxd -p | tr -d '\n' | tr '[:lower:]' '[:upper:]')ULL"
+brand_hex=$(printf '0x%02X%02X%02X%02X20434647ULL' \
+    "'${brand:0:1}" "'${brand:1:1}" "'${brand:2:1}" "'${brand:3:1}")
 echo "开始sed工作"
 sed -i 's/QEMU v" QEMU_VERSION/'${brand}' v" QEMU_VERSION/g' block/vhdx.c
 sed -i 's/QEMU VVFAT", 10/'${brand}' VVFAT", 10/g' block/vvfat.c
