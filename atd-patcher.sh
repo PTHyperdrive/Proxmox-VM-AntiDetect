@@ -609,7 +609,7 @@ if (( ! SKIP_BUILD )); then
         echo ""
 
         if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
-            local qemu_deb
+            qemu_deb=""
             qemu_deb="$(find "${artifacts}" -name 'pve-qemu-kvm_*.deb' 2>/dev/null | head -1)"
             if [[ -n "${qemu_deb}" ]]; then
                 atd_info "QEMU:   dpkg -i ${qemu_deb}"
@@ -617,7 +617,7 @@ if (( ! SKIP_BUILD )); then
         fi
 
         if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
-            local edk2_deb
+            edk2_deb=""
             edk2_deb="$(find "${artifacts}" -name 'pve-edk2-firmware-ovmf_*.deb' 2>/dev/null | head -1)"
             if [[ -n "${edk2_deb}" ]]; then
                 atd_info "EDK2:   dpkg -i ${edk2_deb}"
@@ -625,7 +625,7 @@ if (( ! SKIP_BUILD )); then
         fi
 
         if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
-            local kernel_debs
+            kernel_debs=""
             kernel_debs="$(find "${artifacts}" -name 'pve-kernel-*.deb' 2>/dev/null | tr '\n' ' ')"
             if [[ -n "${kernel_debs}" ]]; then
                 atd_info "Kernel: dpkg -i ${kernel_debs}"
