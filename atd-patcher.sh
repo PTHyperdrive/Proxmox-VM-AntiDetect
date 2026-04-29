@@ -400,18 +400,6 @@ open(f, 'w').write(c)
             atd_warn "GenMake.py not found at ${genmake}, skipping Python 3.13 fix"
         fi
 
-        # Disable TDX build target (not needed for anti-detection, fails on most setups)
-        local edk2_rules="${edk2_parent}/debian/rules"
-        if [[ -f "${edk2_rules}" ]] && grep -q 'build-ovmf-tdx' "${edk2_rules}" 2>/dev/null; then
-            atd_info "Disabling TDX build target in debian/rules ..."
-            if (( ATD_DRY_RUN )); then
-                atd_dry "Remove build-ovmf-tdx from ${edk2_rules}"
-            else
-                sed -i 's/ build-ovmf-tdx//g' "${edk2_rules}"
-                atd_debug "Removed build-ovmf-tdx from debian/rules"
-            fi
-        fi
-
         # Generate diff for reference
         if (( ! ATD_DRY_RUN )); then
             pushd "${EDK2_DIR}" > /dev/null
