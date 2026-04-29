@@ -1,0 +1,611 @@
+diff --git a/MdeModulePkg/MdeModulePkg.dec b/MdeModulePkg/MdeModulePkg.dec
+index 3698caf902..b363342e19 100644
+--- a/MdeModulePkg/MdeModulePkg.dec
++++ b/MdeModulePkg/MdeModulePkg.dec
+@@ -2120,7 +2120,7 @@
+   #  The OEM assigns each dissimilar table a new OEM Table ID.
+   #  This PCD is ignored for definition block.
+   # @Prompt Default OEM Table ID for ACPI table creation.
+-  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemTableId|0x20202020324B4445|UINT64|0x30001035
++  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemTableId|0x20202020204c5450|UINT64|0x30001035
+ 
+   ## Default OEM Revision for ACPI table creation.
+   #  According to ACPI specification, for LoadTable() opcode, the OS can also
+diff --git a/OvmfPkg/AcpiPlatformDxe/AcpiPlatformDxe.inf b/OvmfPkg/AcpiPlatformDxe/AcpiPlatformDxe.inf
+index 622589e607..bafed1d6e2 100644
+--- a/OvmfPkg/AcpiPlatformDxe/AcpiPlatformDxe.inf
++++ b/OvmfPkg/AcpiPlatformDxe/AcpiPlatformDxe.inf
+@@ -8,7 +8,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuFwCfgAcpiPlatform
++  BASE_NAME                      = DellFwCfgAcpiPlatform
+   FILE_GUID                      = 17985e6f-e778-4d94-aefa-c5dd2b77e186
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Fdt/VirtioFdtDxe/VirtioFdtDxe.inf b/OvmfPkg/Fdt/VirtioFdtDxe/VirtioFdtDxe.inf
+index dece5c806b..8b5df1e824 100644
+--- a/OvmfPkg/Fdt/VirtioFdtDxe/VirtioFdtDxe.inf
++++ b/OvmfPkg/Fdt/VirtioFdtDxe/VirtioFdtDxe.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtioFdtDxe
++  BASE_NAME                      = DellioFdtDxe
+   FILE_GUID                      = 0049858F-8CA7-4CCD-918B-D952CBF32975
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/GenericQemuLoadImageLib/GenericQemuLoadImageLib.inf b/OvmfPkg/Library/GenericQemuLoadImageLib/GenericQemuLoadImageLib.inf
+index 9c9e35b1c5..e374a3e819 100644
+--- a/OvmfPkg/Library/GenericQemuLoadImageLib/GenericQemuLoadImageLib.inf
++++ b/OvmfPkg/Library/GenericQemuLoadImageLib/GenericQemuLoadImageLib.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.27
+-  BASE_NAME                      = GenericQemuLoadImageLib
++  BASE_NAME                      = GenericDellLoadImageLib
+   FILE_GUID                      = 9e3e28da-c7b5-4f85-841a-84e6a9a1f1a0
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuBootOrderLib/QemuBootOrderLib.inf b/OvmfPkg/Library/QemuBootOrderLib/QemuBootOrderLib.inf
+index 6e320e3e85..f694ef528a 100644
+--- a/OvmfPkg/Library/QemuBootOrderLib/QemuBootOrderLib.inf
++++ b/OvmfPkg/Library/QemuBootOrderLib/QemuBootOrderLib.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuBootOrderLib
++  BASE_NAME                      = DellBootOrderLib
+   FILE_GUID                      = 1D677A58-C753-4AF1-B552-EFE142DF8F57
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgDxeLib.inf b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgDxeLib.inf
+index 51326807ef..269821cb6a 100644
+--- a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgDxeLib.inf
++++ b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgDxeLib.inf
+@@ -12,7 +12,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuFwCfgDxeLib
++  BASE_NAME                      = DellFwCfgDxeLib
+   FILE_GUID                      = 80474090-55e7-4c28-b25c-9f236ba41f28
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgLibNull.inf b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgLibNull.inf
+index e5715a6433..cab72498b2 100644
+--- a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgLibNull.inf
++++ b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgLibNull.inf
+@@ -13,7 +13,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuFwCfgLibNull
++  BASE_NAME                      = DellFwCfgLibNull
+   FILE_GUID                      = B9D1A1F2-01E2-4732-982D-C7F9ED51AC6B
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioDxeLib.inf b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioDxeLib.inf
+index 633053aaed..946e14ce19 100644
+--- a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioDxeLib.inf
++++ b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioDxeLib.inf
+@@ -12,7 +12,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuFwCfgLib
++  BASE_NAME                      = DellFwCfgLib
+   FILE_GUID                      = B271F41F-B841-48A9-BA8D-545B4BC2E2BF
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioPeiLib.inf b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioPeiLib.inf
+index 5d6e45b7ef..bd37e65d1f 100644
+--- a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioPeiLib.inf
++++ b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioPeiLib.inf
+@@ -12,7 +12,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.29
+-  BASE_NAME                      = QemuFwCfgPeiLib
++  BASE_NAME                      = DellFwCfgPeiLib
+   FILE_GUID                      = CDF9A9D5-7422-4DCB-B41D-607151AD320B
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgPeiLib.inf b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgPeiLib.inf
+index 7ecfa489e5..7bf2a2cca5 100644
+--- a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgPeiLib.inf
++++ b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgPeiLib.inf
+@@ -12,7 +12,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuFwCfgPeiLib
++  BASE_NAME                      = DellFwCfgPeiLib
+   FILE_GUID                      = ddd4f5f0-5304-42a8-9efa-d14bf11a3533
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgSecLib.inf b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgSecLib.inf
+index 587fe3e1c6..da8c472937 100644
+--- a/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgSecLib.inf
++++ b/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgSecLib.inf
+@@ -12,7 +12,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuFwCfgSecLib
++  BASE_NAME                      = DellFwCfgSecLib
+   FILE_GUID                      = 60a910e5-7443-413d-9a30-97e57497cd1b
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgS3Lib/BaseQemuFwCfgS3LibNull.inf b/OvmfPkg/Library/QemuFwCfgS3Lib/BaseQemuFwCfgS3LibNull.inf
+index c83b78d42f..b913430e06 100644
+--- a/OvmfPkg/Library/QemuFwCfgS3Lib/BaseQemuFwCfgS3LibNull.inf
++++ b/OvmfPkg/Library/QemuFwCfgS3Lib/BaseQemuFwCfgS3LibNull.inf
+@@ -13,7 +13,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.25
+-  BASE_NAME                      = BaseQemuFwCfgS3LibNull
++  BASE_NAME                      = BaseDellFwCfgS3LibNull
+   FILE_GUID                      = EA7D2B69-D221-4950-9C2C-C38A65BCC96E
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgS3Lib/DxeQemuFwCfgS3LibFwCfg.inf b/OvmfPkg/Library/QemuFwCfgS3Lib/DxeQemuFwCfgS3LibFwCfg.inf
+index 10f41d64c6..d2117c686a 100644
+--- a/OvmfPkg/Library/QemuFwCfgS3Lib/DxeQemuFwCfgS3LibFwCfg.inf
++++ b/OvmfPkg/Library/QemuFwCfgS3Lib/DxeQemuFwCfgS3LibFwCfg.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.25
+-  BASE_NAME                      = DxeQemuFwCfgS3LibFwCfg
++  BASE_NAME                      = DxeDellFwCfgS3LibFwCfg
+   FILE_GUID                      = C5DE76EB-E8DE-4057-A487-C5A09AB039AB
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgS3Lib/PeiQemuFwCfgS3LibFwCfg.inf b/OvmfPkg/Library/QemuFwCfgS3Lib/PeiQemuFwCfgS3LibFwCfg.inf
+index 8268828a76..53c6d2cea9 100644
+--- a/OvmfPkg/Library/QemuFwCfgS3Lib/PeiQemuFwCfgS3LibFwCfg.inf
++++ b/OvmfPkg/Library/QemuFwCfgS3Lib/PeiQemuFwCfgS3LibFwCfg.inf
+@@ -12,7 +12,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.25
+-  BASE_NAME                      = PeiQemuFwCfgS3LibFwCfg
++  BASE_NAME                      = PeiDellFwCfgS3LibFwCfg
+   FILE_GUID                      = DD8D28B4-C1DC-4CAF-BB93-074BE80DAE6D
+   MODULE_TYPE                    = PEIM
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/QemuFwCfgSimpleParserLib/QemuFwCfgSimpleParserLib.inf b/OvmfPkg/Library/QemuFwCfgSimpleParserLib/QemuFwCfgSimpleParserLib.inf
+index c0e6ab3a13..c03a085e0d 100644
+--- a/OvmfPkg/Library/QemuFwCfgSimpleParserLib/QemuFwCfgSimpleParserLib.inf
++++ b/OvmfPkg/Library/QemuFwCfgSimpleParserLib/QemuFwCfgSimpleParserLib.inf
+@@ -8,7 +8,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.29
+-  BASE_NAME                      = QemuFwCfgSimpleParserLib
++  BASE_NAME                      = DellFwCfgSimpleParserLib
+   FILE_GUID                      = a9a1211d-061e-4b64-af30-5dd0cac9dc99
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/VirtioMmioDeviceLib/VirtioMmioDeviceLib.inf b/OvmfPkg/Library/VirtioMmioDeviceLib/VirtioMmioDeviceLib.inf
+index 0736f89d6d..b271a77cc8 100644
+--- a/OvmfPkg/Library/VirtioMmioDeviceLib/VirtioMmioDeviceLib.inf
++++ b/OvmfPkg/Library/VirtioMmioDeviceLib/VirtioMmioDeviceLib.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010006
+-  BASE_NAME                      = VirtioMmioDeviceLib
++  BASE_NAME                      = DellioMmioDeviceLib
+   FILE_GUID                      = 3b6ed966-b5d1-46a8-965b-867ff22d9c89
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/X86QemuLoadImageLib/X86QemuLoadImageLib.inf b/OvmfPkg/Library/X86QemuLoadImageLib/X86QemuLoadImageLib.inf
+index 09babd3be8..04a94b144e 100644
+--- a/OvmfPkg/Library/X86QemuLoadImageLib/X86QemuLoadImageLib.inf
++++ b/OvmfPkg/Library/X86QemuLoadImageLib/X86QemuLoadImageLib.inf
+@@ -13,7 +13,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.27
+-  BASE_NAME                      = X86QemuLoadImageLib
++  BASE_NAME                      = X86DellLoadImageLib
+   FILE_GUID                      = 2304df80-e21d-4170-9c3c-113c878f7ac0
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/XenConsoleSerialPortLib/XenConsoleSerialPortLib.inf b/OvmfPkg/Library/XenConsoleSerialPortLib/XenConsoleSerialPortLib.inf
+index 51c66266cf..fb5bf01710 100644
+--- a/OvmfPkg/Library/XenConsoleSerialPortLib/XenConsoleSerialPortLib.inf
++++ b/OvmfPkg/Library/XenConsoleSerialPortLib/XenConsoleSerialPortLib.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenConsoleSerialPortLib
++  BASE_NAME                      = DellConsoleSerialPortLib
+   FILE_GUID                      = 401406DD-BCAC-4B91-9F4E-72A7FEBE4762
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/XenHypercallLib/XenHypercallLib.inf b/OvmfPkg/Library/XenHypercallLib/XenHypercallLib.inf
+index 2321b61bf8..a7f9d958c1 100644
+--- a/OvmfPkg/Library/XenHypercallLib/XenHypercallLib.inf
++++ b/OvmfPkg/Library/XenHypercallLib/XenHypercallLib.inf
+@@ -8,7 +8,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenHypercallLib
++  BASE_NAME                      = DellHypercallLib
+   FILE_GUID                      = B5EE9A32-CA5A-49A8-82E3-ADA4CCB77C7C
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/XenIoMmioLib/XenIoMmioLib.inf b/OvmfPkg/Library/XenIoMmioLib/XenIoMmioLib.inf
+index 7a0395facf..6eb1d89718 100644
+--- a/OvmfPkg/Library/XenIoMmioLib/XenIoMmioLib.inf
++++ b/OvmfPkg/Library/XenIoMmioLib/XenIoMmioLib.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenIoMmioLib
++  BASE_NAME                      = DellIoMmioLib
+   FILE_GUID                      = de9bdc19-8434-47bb-be3c-7f28f2101fd0
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/XenPlatformLib/XenPlatformLib.inf b/OvmfPkg/Library/XenPlatformLib/XenPlatformLib.inf
+index 32adb246d6..282927bf57 100644
+--- a/OvmfPkg/Library/XenPlatformLib/XenPlatformLib.inf
++++ b/OvmfPkg/Library/XenPlatformLib/XenPlatformLib.inf
+@@ -13,7 +13,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenPlatformLib
++  BASE_NAME                      = DellPlatformLib
+   FILE_GUID                      = DB54DBB7-8142-4EE5-9364-78C824B582EB
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Library/XenRealTimeClockLib/XenRealTimeClockLib.inf b/OvmfPkg/Library/XenRealTimeClockLib/XenRealTimeClockLib.inf
+index f4b269b214..31f6475a0e 100644
+--- a/OvmfPkg/Library/XenRealTimeClockLib/XenRealTimeClockLib.inf
++++ b/OvmfPkg/Library/XenRealTimeClockLib/XenRealTimeClockLib.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenRealTimeClockLib
++  BASE_NAME                      = DellRealTimeClockLib
+   FILE_GUID                      = EC2557E8-7005-430B-9F6F-9BA109698248
+   MODULE_TYPE                    = BASE
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/QemuKernelLoaderFsDxe/QemuKernelLoaderFsDxe.inf b/OvmfPkg/QemuKernelLoaderFsDxe/QemuKernelLoaderFsDxe.inf
+index a2f44bbca1..998b3ff01d 100644
+--- a/OvmfPkg/QemuKernelLoaderFsDxe/QemuKernelLoaderFsDxe.inf
++++ b/OvmfPkg/QemuKernelLoaderFsDxe/QemuKernelLoaderFsDxe.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.27
+-  BASE_NAME                      = QemuKernelLoaderFsDxe
++  BASE_NAME                      = DellKernelLoaderFsDxe
+   FILE_GUID                      = 806040ca-dad9-4978-a3b4-2d2ab0c8a48f
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/QemuRamfbDxe/QemuRamfbDxe.inf b/OvmfPkg/QemuRamfbDxe/QemuRamfbDxe.inf
+index e3890b8c20..43e24f9d90 100644
+--- a/OvmfPkg/QemuRamfbDxe/QemuRamfbDxe.inf
++++ b/OvmfPkg/QemuRamfbDxe/QemuRamfbDxe.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuRamfbDxe
++  BASE_NAME                      = DellRamfbDxe
+   FILE_GUID                      = dce1b094-7dc6-45d0-9fdd-d7fc3cc3e4ef
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/QemuVideoDxe/QemuVideoDxe.inf b/OvmfPkg/QemuVideoDxe/QemuVideoDxe.inf
+index ad911c7e81..fe251ed5f1 100644
+--- a/OvmfPkg/QemuVideoDxe/QemuVideoDxe.inf
++++ b/OvmfPkg/QemuVideoDxe/QemuVideoDxe.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = QemuVideoDxe
++  BASE_NAME                      = DellVideoDxe
+   FILE_GUID                      = e3752948-b9a1-4770-90c4-df41c38986be
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/RiscVVirt/Library/VirtNorFlashPlatformLib/VirtNorFlashDeviceTreeLib.inf b/OvmfPkg/RiscVVirt/Library/VirtNorFlashPlatformLib/VirtNorFlashDeviceTreeLib.inf
+index 90df756e79..1ad9a5bd7b 100644
+--- a/OvmfPkg/RiscVVirt/Library/VirtNorFlashPlatformLib/VirtNorFlashDeviceTreeLib.inf
++++ b/OvmfPkg/RiscVVirt/Library/VirtNorFlashPlatformLib/VirtNorFlashDeviceTreeLib.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x0001001B
+-  BASE_NAME                      = VirtNorFlashDeviceTreeLib
++  BASE_NAME                      = DellNorFlashDeviceTreeLib
+   FILE_GUID                      = 1D74E65F-A468-4FA6-ACB6-E4E941EB79D6
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/RiscVVirt/Library/VirtNorFlashPlatformLib/VirtNorFlashStaticLib.inf b/OvmfPkg/RiscVVirt/Library/VirtNorFlashPlatformLib/VirtNorFlashStaticLib.inf
+index 4e87bd4373..12c7bda90a 100644
+--- a/OvmfPkg/RiscVVirt/Library/VirtNorFlashPlatformLib/VirtNorFlashStaticLib.inf
++++ b/OvmfPkg/RiscVVirt/Library/VirtNorFlashPlatformLib/VirtNorFlashStaticLib.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtNorFlashStaticLib
++  BASE_NAME                      = DellNorFlashStaticLib
+   FILE_GUID                      = 064742F1-E531-4D7D-A154-22315889CC23
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/SmbiosPlatformDxe/XenSmbiosPlatformDxe.inf b/OvmfPkg/SmbiosPlatformDxe/XenSmbiosPlatformDxe.inf
+index e646c88741..af015302b2 100644
+--- a/OvmfPkg/SmbiosPlatformDxe/XenSmbiosPlatformDxe.inf
++++ b/OvmfPkg/SmbiosPlatformDxe/XenSmbiosPlatformDxe.inf
+@@ -11,7 +11,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenSmbiosPlatformDxe
++  BASE_NAME                      = DellSmbiosPlatformDxe
+   FILE_GUID                      = c41f0579-5598-40f1-95db-3983c8ebbe2a
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtHstiDxe/VirtHstiDxe.inf b/OvmfPkg/VirtHstiDxe/VirtHstiDxe.inf
+index b5c2372887..43c42bc0b5 100644
+--- a/OvmfPkg/VirtHstiDxe/VirtHstiDxe.inf
++++ b/OvmfPkg/VirtHstiDxe/VirtHstiDxe.inf
+@@ -11,7 +11,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtHstiDxe
++  BASE_NAME                      = DellHstiDxe
+   FILE_GUID                      = 60740CF3-D428-4500-80E6-04A5798241ED
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtNorFlashDxe/VirtNorFlashDxe.inf b/OvmfPkg/VirtNorFlashDxe/VirtNorFlashDxe.inf
+index f549400280..08f034e91e 100644
+--- a/OvmfPkg/VirtNorFlashDxe/VirtNorFlashDxe.inf
++++ b/OvmfPkg/VirtNorFlashDxe/VirtNorFlashDxe.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.29
+-  BASE_NAME                      = VirtNorFlashDxe
++  BASE_NAME                      = DellNorFlashDxe
+   FILE_GUID                      = e452cabd-5fe1-4d97-8161-e80ed6a409a8
+   MODULE_TYPE                    = DXE_RUNTIME_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/Virtio10Dxe/Virtio10.inf b/OvmfPkg/Virtio10Dxe/Virtio10.inf
+index b9ab6c0bd2..36894ae746 100644
+--- a/OvmfPkg/Virtio10Dxe/Virtio10.inf
++++ b/OvmfPkg/Virtio10Dxe/Virtio10.inf
+@@ -8,7 +8,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = Virtio10
++  BASE_NAME                      = Dellio10
+   FILE_GUID                      = 0170F60C-1D40-4651-956D-F0BD9879D527
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtioBlkDxe/VirtioBlk.inf b/OvmfPkg/VirtioBlkDxe/VirtioBlk.inf
+index fc639cb14e..9151a861c1 100644
+--- a/OvmfPkg/VirtioBlkDxe/VirtioBlk.inf
++++ b/OvmfPkg/VirtioBlkDxe/VirtioBlk.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtioBlkDxe
++  BASE_NAME                      = DellioBlkDxe
+   FILE_GUID                      = 11D92DFB-3CA9-4F93-BA2E-4780ED3E03B5
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtioFsDxe/VirtioFsDxe.inf b/OvmfPkg/VirtioFsDxe/VirtioFsDxe.inf
+index 8d962bcdc1..2e196a1214 100644
+--- a/OvmfPkg/VirtioFsDxe/VirtioFsDxe.inf
++++ b/OvmfPkg/VirtioFsDxe/VirtioFsDxe.inf
+@@ -71,7 +71,7 @@
+ 
+ [Defines]
+   INF_VERSION                           = 1.29
+-  BASE_NAME                             = VirtioFsDxe
++  BASE_NAME                             = DellioFsDxe
+   FILE_GUID                             = 7BD9DDF7-8B83-488E-AEC9-24C78610289C
+   MODULE_TYPE                           = UEFI_DRIVER
+   ENTRY_POINT                           = VirtioFsEntryPoint
+diff --git a/OvmfPkg/VirtioGpuDxe/VirtioGpu.inf b/OvmfPkg/VirtioGpuDxe/VirtioGpu.inf
+index 7e929fd6a4..8a4ea016bc 100644
+--- a/OvmfPkg/VirtioGpuDxe/VirtioGpu.inf
++++ b/OvmfPkg/VirtioGpuDxe/VirtioGpu.inf
+@@ -11,7 +11,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtioGpuDxe
++  BASE_NAME                      = DellioGpuDxe
+   FILE_GUID                      = D6099B94-CD97-4CC5-8714-7F6312701A8A
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtioKeyboardDxe/VirtioKeyboard.inf b/OvmfPkg/VirtioKeyboardDxe/VirtioKeyboard.inf
+index 6c35f2a4ce..45d1632065 100644
+--- a/OvmfPkg/VirtioKeyboardDxe/VirtioKeyboard.inf
++++ b/OvmfPkg/VirtioKeyboardDxe/VirtioKeyboard.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 1.29
+-  BASE_NAME                      = VirtioKeyboardDxe
++  BASE_NAME                      = DellioKeyboardDxe
+   FILE_GUID                      = F141B1E5-9C7C-44CC-AFAA-E87D7689B113
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtioNetDxe/VirtioNet.inf b/OvmfPkg/VirtioNetDxe/VirtioNet.inf
+index ada84ed554..3851e9d63d 100644
+--- a/OvmfPkg/VirtioNetDxe/VirtioNet.inf
++++ b/OvmfPkg/VirtioNetDxe/VirtioNet.inf
+@@ -11,7 +11,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtioNetDxe
++  BASE_NAME                      = DellioNetDxe
+   FILE_GUID                      = A92CDB4B-82F1-4E0B-A516-8A655D371524
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtioPciDeviceDxe/VirtioPciDeviceDxe.inf b/OvmfPkg/VirtioPciDeviceDxe/VirtioPciDeviceDxe.inf
+index be5f2aa226..ab80a0d296 100644
+--- a/OvmfPkg/VirtioPciDeviceDxe/VirtioPciDeviceDxe.inf
++++ b/OvmfPkg/VirtioPciDeviceDxe/VirtioPciDeviceDxe.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010006
+-  BASE_NAME                      = VirtioPciDeviceDxe
++  BASE_NAME                      = DellioPciDeviceDxe
+   FILE_GUID                      = 83dd3b39-7caf-4fac-a542-e050b767e3a7
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtioRngDxe/VirtioRng.inf b/OvmfPkg/VirtioRngDxe/VirtioRng.inf
+index 7f5fcc92d4..c6b50c2e43 100644
+--- a/OvmfPkg/VirtioRngDxe/VirtioRng.inf
++++ b/OvmfPkg/VirtioRngDxe/VirtioRng.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtioRngDxe
++  BASE_NAME                      = DellioRngDxe
+   FILE_GUID                      = 58E26F0D-CBAC-4BBA-B70F-18221415665A
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtioScsiDxe/VirtioScsi.inf b/OvmfPkg/VirtioScsiDxe/VirtioScsi.inf
+index d19cc0dbf7..cb96f80d5d 100644
+--- a/OvmfPkg/VirtioScsiDxe/VirtioScsi.inf
++++ b/OvmfPkg/VirtioScsiDxe/VirtioScsi.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtioScsiDxe
++  BASE_NAME                      = DellioScsiDxe
+   FILE_GUID                      = FAB5D4F4-83C0-4AAF-8480-442D11DF6CEA
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/VirtioSerialDxe/VirtioSerial.inf b/OvmfPkg/VirtioSerialDxe/VirtioSerial.inf
+index d63a08b928..682225d2de 100644
+--- a/OvmfPkg/VirtioSerialDxe/VirtioSerial.inf
++++ b/OvmfPkg/VirtioSerialDxe/VirtioSerial.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = VirtioSerialDxe
++  BASE_NAME                      = DellioSerialDxe
+   FILE_GUID                      = 23CACE14-EBA4-49F6-9681-C697FF0B649E
+   MODULE_TYPE                    = UEFI_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/XenAcpiPlatformDxe/XenAcpiPlatformDxe.inf b/OvmfPkg/XenAcpiPlatformDxe/XenAcpiPlatformDxe.inf
+index be175d290f..885174e58c 100644
+--- a/OvmfPkg/XenAcpiPlatformDxe/XenAcpiPlatformDxe.inf
++++ b/OvmfPkg/XenAcpiPlatformDxe/XenAcpiPlatformDxe.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenAcpiPlatform
++  BASE_NAME                      = DellAcpiPlatform
+   FILE_GUID                      = fa0a48ac-767d-4c88-b70c-ec54c8b900c4
+   MODULE_TYPE                    = DXE_DRIVER
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/XenBusDxe/XenBusDxe.inf b/OvmfPkg/XenBusDxe/XenBusDxe.inf
+index 536b49fa8c..aeb4c0de24 100644
+--- a/OvmfPkg/XenBusDxe/XenBusDxe.inf
++++ b/OvmfPkg/XenBusDxe/XenBusDxe.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION               = 0x00010005
+-  BASE_NAME                 = XenBusDxe
++  BASE_NAME                 = DellBusDxe
+   FILE_GUID                 = 565ec8ba-a484-11e3-802b-b8ac6f7d65e6
+   MODULE_TYPE               = UEFI_DRIVER
+ 
+diff --git a/OvmfPkg/XenIoPciDxe/XenIoPciDxe.inf b/OvmfPkg/XenIoPciDxe/XenIoPciDxe.inf
+index 3afa92f3cd..0cfe123ad3 100644
+--- a/OvmfPkg/XenIoPciDxe/XenIoPciDxe.inf
++++ b/OvmfPkg/XenIoPciDxe/XenIoPciDxe.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION               = 0x00010005
+-  BASE_NAME                 = XenIoPciDxe
++  BASE_NAME                 = DellIoPciDxe
+   FILE_GUID                 = cf569f50-de44-4f54-b4d7-f4ae25cda599
+   MODULE_TYPE               = UEFI_DRIVER
+   VERSION_STRING            = 1.0
+diff --git a/OvmfPkg/XenIoPvhDxe/XenIoPvhDxe.inf b/OvmfPkg/XenIoPvhDxe/XenIoPvhDxe.inf
+index 1c27f8aae0..a853b12cd3 100644
+--- a/OvmfPkg/XenIoPvhDxe/XenIoPvhDxe.inf
++++ b/OvmfPkg/XenIoPvhDxe/XenIoPvhDxe.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION               = 0x00010005
+-  BASE_NAME                 = XenIoPvhDxe
++  BASE_NAME                 = DellIoPvhDxe
+   FILE_GUID                 = 7a567cc4-0e75-4d7a-a305-c3db109b53ad
+   MODULE_TYPE               = DXE_DRIVER
+   VERSION_STRING            = 1.0
+diff --git a/OvmfPkg/XenPlatformPei/XenPlatformPei.inf b/OvmfPkg/XenPlatformPei/XenPlatformPei.inf
+index 20c27ff34b..a77990a3ca 100644
+--- a/OvmfPkg/XenPlatformPei/XenPlatformPei.inf
++++ b/OvmfPkg/XenPlatformPei/XenPlatformPei.inf
+@@ -11,7 +11,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenPlatformPei
++  BASE_NAME                      = DellPlatformPei
+   FILE_GUID                      = f112a6ee-993a-4f0b-8295-e52029d9b4ba
+   MODULE_TYPE                    = PEIM
+   VERSION_STRING                 = 1.0
+diff --git a/OvmfPkg/XenPvBlkDxe/XenPvBlkDxe.inf b/OvmfPkg/XenPvBlkDxe/XenPvBlkDxe.inf
+index 5dd8e8be11..6edd9e4645 100644
+--- a/OvmfPkg/XenPvBlkDxe/XenPvBlkDxe.inf
++++ b/OvmfPkg/XenPvBlkDxe/XenPvBlkDxe.inf
+@@ -9,7 +9,7 @@
+ 
+ [Defines]
+   INF_VERSION               = 0x00010005
+-  BASE_NAME                 = XenPvBlkDxe
++  BASE_NAME                 = DellPvBlkDxe
+   FILE_GUID                 = 8c2487ea-9af3-11e3-b966-b8ac6f7d65e6
+   MODULE_TYPE               = UEFI_DRIVER
+ 
+diff --git a/OvmfPkg/XenResetVector/XenResetVector.inf b/OvmfPkg/XenResetVector/XenResetVector.inf
+index a40552862c..d617e70d6a 100644
+--- a/OvmfPkg/XenResetVector/XenResetVector.inf
++++ b/OvmfPkg/XenResetVector/XenResetVector.inf
+@@ -10,7 +10,7 @@
+ 
+ [Defines]
+   INF_VERSION                    = 0x00010005
+-  BASE_NAME                      = XenResetVector
++  BASE_NAME                      = DellResetVector
+   FILE_GUID                      = 1BA0062E-C779-4582-8566-336AE8F78F09
+   MODULE_TYPE                    = USER_DEFINED
+   VERSION_STRING                 = 1.1

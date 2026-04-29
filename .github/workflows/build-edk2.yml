@@ -1,0 +1,183 @@
+name: Build EDK2 via ATD Patcher
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+    inputs:
+      brand:
+        description: 'Brand name (exactly 4 chars)'
+        required: false
+        default: 'ASUS'
+      skip_release:
+        description: 'Skip creating GitHub Release'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions: write-all
+    container: ghcr.io/aicodo/pve9docker:main
+    env:
+      TZ: Asia/Shanghai
+    steps:
+      # Step 1: Checkout the main ATD repo (includes lib/, patches/, profiles/, etc.)
+      - name: Checkout ATD repo
+        uses: actions/checkout@v4
+
+      # Step 2: Debug -- show environment and disk space
+      - name: Environment info
+        run: |
+          echo "=== OS ==="
+          cat /etc/os-release || true
+          echo ""
+          echo "=== Disk ==="
+          df -h
+          echo ""
+          echo "=== RAM ==="
+          free -m
+          echo ""
+          echo "=== Python ==="
+          python3 --version
+          echo ""
+          echo "=== GCC ==="
+          gcc --version | head -1
+          echo ""
+          echo "=== Workspace ==="
+          ls -la
+          echo ""
+          echo "=== Profile ==="
+          cat profiles/default.conf
+
+      # Step 3: Install build dependencies (mirrors atd-patcher phase_deps for edk2)
+      - name: Install build dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq \
+            build-essential git devscripts meson quilt \
+            libacl1-dev libaio-dev libattr1-dev libcap-ng-dev \
+            libcurl4-gnutls-dev libepoxy-dev libfdt-dev libgbm-dev \
+            libgnutls28-dev libiscsi-dev libjpeg-dev libnuma-dev \
+            libpci-dev libpixman-1-dev librbd-dev libsdl1.2-dev \
+            libseccomp-dev libslirp-dev libspice-protocol-dev \
+            libspice-server-dev libsystemd-dev liburing-dev \
+            libusb-1.0-0-dev libusbredirparser-dev libvirglrenderer-dev \
+            python3-sphinx python3-sphinx-rtd-theme xfslibs-dev \
+            gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
+            bc dosfstools iasl mtools nasm python3 python3-pexpect \
+            qemu-utils uuid-dev xorriso curl pve-qemu-kvm jq
+
+      # Step 4: Optionally override brand in profile
+      - name: Configure brand
+        if: ${{ github.event.inputs.brand != '' && github.event.inputs.brand != 'ASUS' }}
+        run: |
+          echo "Overriding brand to: ${{ github.event.inputs.brand }}"
+          sed -i "s/^name=ASUS$/name=${{ github.event.inputs.brand }}/" profiles/default.conf
+          grep 'name=' profiles/default.conf
+
+      # Step 5: Run atd-patcher.sh for EDK2 target with verbose logging
+      - name: Run ATD Patcher (EDK2)
+        run: |
+          echo "============================================="
+          echo "  Running atd-patcher.sh --target edk2"
+          echo "============================================="
+          chmod +x atd-patcher.sh
+          chmod +x lib/atd-styles.sh
+          chmod +x patches/*.patch.sh
+          bash atd-patcher.sh \
+            --target edk2 \
+            --profile profiles/default.conf \
+            --verbose \
+            --skip-cleanup
+
+      # Step 6: Collect artifacts
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+
+          # Copy .deb files (exclude legacy, aarch64, deps, riscv)
+          find . -name "*.deb" \
+            ! -name "*legacy*" \
+            ! -name "*aarch64*" \
+            ! -name "*deps*" \
+            ! -name "*riscv*" \
+            ! -name "*firmware_4*" \
+            -exec cp {} ./artifacts/ \;
+
+          # Copy auto-generated patch
+          find . -name "*autoGenPatch.patch" -exec cp {} ./artifacts/ \;
+
+          # Copy Logo.bmp for reference
+          cp pve-emu-realpc_edk2-firmware-ovmf-main/Logo.bmp ./artifacts/ 2>/dev/null || true
+
+          echo ""
+          echo "=== Artifacts ==="
+          ls -lh artifacts/
+          echo ""
+          echo "=== .deb packages ==="
+          find artifacts/ -name "*.deb" -exec dpkg-deb -I {} \; 2>/dev/null | head -40 || true
+
+      # Step 7: Upload artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pve-edk2-firmware-atd
+          path: artifacts/*
+
+      # Step 8: Get current time for release tag
+      - name: Get current time
+        if: ${{ github.event.inputs.skip_release != 'true' }}
+        id: current-time
+        uses: josStorer/get-current-time@v2.0.2
+        with:
+          format: YYYYMMDD-HHmmSS
+          utcOffset: "+08:00"
+
+      # Step 9: List final artifacts
+      - name: List final artifacts
+        if: ${{ github.event.inputs.skip_release != 'true' }}
+        run: |
+          echo "=== Final artifacts for release ==="
+          ls -lh artifacts/
+
+      # Step 10: Create GitHub Release
+      - name: Create GitHub Release
+        if: ${{ github.event.inputs.skip_release != 'true' }}
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ format('edk2-v{0}', steps.current-time.outputs.formattedTime) }}
+          release_name: ${{ format('ATD pve-edk2-firmware-ovmf build-{0}', steps.current-time.outputs.formattedTime) }}
+          body: |
+            ## EDK2 Firmware Build (via ATD Patcher)
+
+            Built using `atd-patcher.sh --target edk2` pipeline.
+            Toolchain: **GCC** (not VS2022)
+            Brand: **${{ github.event.inputs.brand || 'ASUS' }}**
+
+            ### Included
+            - `pve-edk2-firmware-ovmf` .deb package
+            - `edk2-autoGenPatch.patch` (generated diff)
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 11: Upload artifacts to Release
+      - name: Upload artifacts to release
+        if: ${{ github.event.inputs.skip_release != 'true' }}
+        run: |
+          for file in ${GITHUB_WORKSPACE}/artifacts/*; do
+            echo "Uploading $(basename $file) ..."
+            curl -sS -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$file" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.create_release.outputs.id }}/assets?name=$(basename $file)"
+          done
+          echo ""
+          echo "=== Upload complete ==="
