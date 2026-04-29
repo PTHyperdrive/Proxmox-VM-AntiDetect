@@ -21,7 +21,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     permissions: write-all
-    container: ghcr.io/PTHyperdrive/PVE-Docker9:main
+    container: ghcr.io/pthyperdrive/pve-docker9:main
     env:
       TZ: Asia/Shanghai
     steps:
