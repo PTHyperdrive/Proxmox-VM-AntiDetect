@@ -127,11 +127,17 @@ patch_edk2_brand() {
         local target="${src}/${inf}"
         if [[ -f "${target}" ]]; then
             # Replace only BASE_NAME values -- anchored to avoid corrupting LIBRARY_CLASS etc.
+            # Exact prefix patterns (GenericQemu, BaseQemu, DxeQemu, PeiQemu, X86Qemu)
+            sed -i "/^[[:space:]]*BASE_NAME/s/= GenericQemu/= Generic${brand}/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= BaseQemu/= Base${brand}/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= DxeQemu/= Dxe${brand}/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= PeiQemu/= Pei${brand}/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= X86Qemu/= X86${brand}/g" "${target}" 2>/dev/null
+            # Standard patterns (Qemu, Xen, Virtio, VirtNor)
             sed -i "/^[[:space:]]*BASE_NAME/s/= Qemu/= ${brand}/g" "${target}" 2>/dev/null
             sed -i "/^[[:space:]]*BASE_NAME/s/= Xen/= ${brand}/g" "${target}" 2>/dev/null
             sed -i "/^[[:space:]]*BASE_NAME/s/= Virtio/= ${brand}io/g" "${target}" 2>/dev/null
             sed -i "/^[[:space:]]*BASE_NAME/s/= VirtNor/= ${brand}Nor/g" "${target}" 2>/dev/null
-            sed -i "/^[[:space:]]*BASE_NAME/s/= X86Qemu/= X86${brand}/g" "${target}" 2>/dev/null
             atd_debug "Patched $(basename "${inf}")"
         fi
     done

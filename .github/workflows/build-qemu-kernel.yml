@@ -1,16 +1,21 @@
-name: Build EDK2 via ATD Patcher
+name: Build QEMU + Kernel via ATD Patcher
 
 on:
-  push:
-    branches:
-      - master
-      - main
   workflow_dispatch:
     inputs:
       brand:
         description: 'Brand name (exactly 4 chars)'
         required: false
         default: 'ASUS'
+      target:
+        description: 'Build target'
+        required: false
+        default: 'qemu'
+        type: choice
+        options:
+          - qemu
+          - kernel
+          - all
       skip_release:
         description: 'Skip creating GitHub Release'
         required: false
@@ -25,11 +30,11 @@ jobs:
     env:
       TZ: Asia/Ho_Chi_Minh
     steps:
-      # Step 1: Checkout the main ATD repo (includes lib/, patches/, profiles/, etc.)
+      # Step 1: Checkout
       - name: Checkout ATD repo
         uses: actions/checkout@v4
 
-      # Step 2: Debug -- show environment and disk space
+      # Step 2: Environment info
       - name: Environment info
         run: |
           echo "=== OS ==="
@@ -47,13 +52,10 @@ jobs:
           echo "=== GCC ==="
           gcc --version | head -1
           echo ""
-          echo "=== Workspace ==="
-          ls -la
-          echo ""
-          echo "=== Profile ==="
-          cat profiles/default.conf
+          echo "=== Target ==="
+          echo "Build target: ${{ github.event.inputs.target || 'qemu' }}"
 
-      # Step 3: Install build dependencies (mirrors atd-patcher phase_deps for edk2)
+      # Step 3: Install build dependencies (QEMU + Kernel)
       - name: Install build dependencies
         run: |
           apt-get update -qq
@@ -67,11 +69,13 @@ jobs:
             libspice-server-dev libsystemd-dev liburing-dev \
             libusb-1.0-0-dev libusbredirparser-dev libvirglrenderer-dev \
             python3-sphinx python3-sphinx-rtd-theme xfslibs-dev \
-            gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
-            bc dosfstools iasl mtools nasm python3 python3-pexpect \
-            uuid-dev xorriso curl pve-qemu-kvm:amd64=10.1.2-7 jq
+            bc dosfstools mtools python3 python3-pexpect \
+            uuid-dev curl pve-qemu-kvm:amd64 jq \
+            dh-python asciidoc-base bison dwarves flex \
+            libdw-dev libelf-dev libiberty-dev libslang2-dev \
+            lz4 python3-dev xmlto rsync gawk
 
-      # Step 4: Optionally override brand in profile
+      # Step 4: Configure brand in profile
       - name: Configure brand
         if: ${{ github.event.inputs.brand != '' && github.event.inputs.brand != 'ASUS' }}
         run: |
@@ -79,17 +83,18 @@ jobs:
           sed -i "s/^name=ASUS$/name=${{ github.event.inputs.brand }}/" profiles/default.conf
           grep 'name=' profiles/default.conf
 
-      # Step 5: Run atd-patcher.sh for EDK2 target with verbose logging
-      - name: Run ATD Patcher (EDK2)
+      # Step 5: Run ATD Patcher
+      - name: Run ATD Patcher
         run: |
+          TARGET="${{ github.event.inputs.target || 'qemu' }}"
           echo "============================================="
-          echo "  Running atd-patcher.sh --target edk2"
+          echo "  Running atd-patcher.sh --target ${TARGET}"
           echo "============================================="
           chmod +x atd-patcher.sh
           chmod +x lib/atd-styles.sh
           chmod +x patches/*.patch.sh
           bash atd-patcher.sh \
-            --target edk2 \
+            --target "${TARGET}" \
             --profile profiles/default.conf \
             --verbose \
             --skip-cleanup
@@ -97,48 +102,51 @@ jobs:
       # Step 6: Collect artifacts
       - name: Collect artifacts
         run: |
-          mkdir -p artifacts
+          TARGET="${{ github.event.inputs.target || 'qemu' }}"
+          mkdir -p release-artifacts
 
-          # Copy ONLY the build-output .deb files from pve-edk2-firmware build dir
-          # (exclude pre-built debs in resource dirs, legacy, aarch64, riscv, deps)
-          find ./pve-emu-realpc_edk2-firmware-ovmf-main/pve-edk2-firmware -maxdepth 1 \
-            -name "*.deb" \
-            ! -name "*legacy*" \
-            ! -name "*aarch64*" \
-            ! -name "*deps*" \
-            ! -name "*riscv*" \
-            ! -name "*firmware_4*" \
-            -exec cp {} ./artifacts/ \;
+          # QEMU artifacts
+          if [ "${TARGET}" = "qemu" ] || [ "${TARGET}" = "all" ]; then
+            find ./pve-emu-realpc-main/pve-qemu -maxdepth 1 -name "pve-qemu-kvm_*.deb" ! -name "*dbgsym*" -exec cp {} ./release-artifacts/ \;
+            find . -name "qemu-autoGenPatch.patch" -exec cp {} ./release-artifacts/ \; 2>/dev/null || true
 
-          # Copy EDK2 auto-generated patch only (not seabios)
-          find . -name "edk2-autoGenPatch.patch" -exec cp {} ./artifacts/ \; 2>/dev/null || true
+            # Copy ACPI tables
+            for f in pve-emu-realpc-main/hpet.aml pve-emu-realpc-main/ssdt*.aml; do
+              [ -f "$f" ] && cp "$f" ./release-artifacts/
+            done
+          fi
 
-          # Copy build logs
-          cp -r build-logs/ ./artifacts/build-logs/ 2>/dev/null || true
+          # Kernel artifacts
+          if [ "${TARGET}" = "kernel" ] || [ "${TARGET}" = "all" ]; then
+            find . -path "*/pve-kernel/pve-kernel-*.deb" ! -name "*dbgsym*" -exec cp {} ./release-artifacts/ \;
+            find . -path "*/pve-kernel/pve-headers-*.deb" -exec cp {} ./release-artifacts/ \; 2>/dev/null || true
+          fi
 
           # Copy deploy scripts
-          cp VM-Deployscripts/pve-realpc-setup.sh ./artifacts/ 2>/dev/null || true
-          cp VM-Deployscripts/pve-realpc-deploy-vm.sh ./artifacts/ 2>/dev/null || true
+          cp VM-Deployscripts/pve-realpc-setup.sh ./release-artifacts/ 2>/dev/null || true
+          cp VM-Deployscripts/pve-realpc-deploy-vm.sh ./release-artifacts/ 2>/dev/null || true
 
           # Package Windows guest tools
           if [ -d "VM-Deployscripts/windows" ]; then
             apt-get install -y -qq zip 2>/dev/null || true
-            ( cd VM-Deployscripts && zip -qr ../artifacts/windows-guest-tools.zip windows/ ) || true
+            ( cd VM-Deployscripts && zip -qr ../release-artifacts/windows-guest-tools.zip windows/ ) || true
           fi
 
           echo ""
           echo "=== Artifacts ==="
-          ls -lh artifacts/
+          ls -lh release-artifacts/
           echo ""
           echo "=== .deb packages ==="
-          find artifacts/ -name "*.deb" -exec dpkg-deb -I {} \; 2>/dev/null | head -40 || true
+          for deb in release-artifacts/*.deb; do
+            [ -f "$deb" ] && echo "--- $(basename $deb) ---" && dpkg-deb -I "$deb" 2>/dev/null | head -10
+          done
 
       # Step 7: Upload artifacts
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pve-edk2-firmware-atd
-          path: artifacts/*
+          name: pve-atd-${{ github.event.inputs.target || 'qemu' }}
+          path: release-artifacts/*
 
       # Step 8: Get current time for release tag
       - name: Get current time
@@ -147,42 +155,53 @@ jobs:
         uses: josStorer/get-current-time@v2.0.2
         with:
           format: YYYYMMDD-HHmmSS
-          utcOffset: "+08:00"
+          utcOffset: "+07:00"
 
-      # Step 9: List final artifacts
-      - name: List final artifacts
-        if: ${{ github.event.inputs.skip_release != 'true' }}
-        run: |
-          echo "=== Final artifacts for release ==="
-          ls -lh artifacts/
-
-      # Step 10: Create GitHub Release
+      # Step 9: Create GitHub Release
       - name: Create GitHub Release
         if: ${{ github.event.inputs.skip_release != 'true' }}
         id: create_release
         uses: actions/create-release@v1
         with:
-          tag_name: ${{ format('edk2-v{0}', steps.current-time.outputs.formattedTime) }}
-          release_name: ${{ format('ATD pve-edk2-firmware-ovmf build-{0}', steps.current-time.outputs.formattedTime) }}
+          tag_name: ${{ format('{0}-v{1}', github.event.inputs.target || 'qemu', steps.current-time.outputs.formattedTime) }}
+          release_name: ${{ format('ATD {0} build-{1}', github.event.inputs.target || 'qemu', steps.current-time.outputs.formattedTime) }}
           body: |
-            ## EDK2 Firmware Build (via ATD Patcher)
+            ## Proxmox Anti-Detection Build (via ATD Patcher)
 
-            Built using `atd-patcher.sh --target edk2` pipeline.
-            Toolchain: **GCC5**
+            **Target:** `${{ github.event.inputs.target || 'qemu' }}`
+            **Toolchain:** GCC5 (Proxmox 9 container)
 
             ### Included
-            - `pve-edk2-firmware-ovmf` .deb package (OVMF x64 + TDX + AAVMF + RISC-V)
-            - `edk2-autoGenPatch.patch` (generated diff for reference)
+            - `pve-qemu-kvm` .deb package (if QEMU target)
+            - `pve-kernel` .deb package with RDTSC patch (if kernel target)
+            - ACPI tables (hpet.aml, ssdt.aml, ssdt-battery.aml, ssdt-ec.aml)
+
+            ### RDTSC Kernel Patch
+            Intercepts `RDTSC`/`RDTSCP` instructions in KVM (both Intel VMX and AMD SVM)
+            to prevent timing-based hypervisor detection. Includes `UMWAIT`/`TPAUSE` handlers.
+
+            ### Installation
+            ```bash
+            # QEMU
+            dpkg -i pve-qemu-kvm_*.deb
+
+            # Kernel (requires reboot)
+            dpkg -i pve-kernel-*.deb pve-headers-*.deb
+            reboot
+
+            # ACPI tables
+            cp *.aml /usr/share/kvm/
+            ```
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 11: Upload artifacts to Release
+      # Step 10: Upload artifacts to Release
       - name: Upload artifacts to release
         if: ${{ github.event.inputs.skip_release != 'true' }}
         run: |
-          for file in ${GITHUB_WORKSPACE}/artifacts/*; do
+          for file in ${GITHUB_WORKSPACE}/release-artifacts/*; do
             [ -f "$file" ] || continue  # skip directories
             echo "Uploading $(basename $file) ..."
             curl -sS -X POST \
@@ -193,4 +212,3 @@ jobs:
           done
           echo ""
           echo "=== Upload complete ==="
-

@@ -51,6 +51,7 @@ SKIP_CLEANUP=0
 RESOURCE_QEMU="${SCRIPT_DIR}/pve-emu-realpc-main"
 RESOURCE_EDK2="${SCRIPT_DIR}/pve-emu-realpc_edk2-firmware-ovmf-main"
 RESOURCE_KERNEL="${SCRIPT_DIR}/pve-emu-realpc_kernel-main"
+RESOURCE_DEPLOY="${SCRIPT_DIR}/VM-Deployscripts"
 PROFILES_DIR="${SCRIPT_DIR}/profiles"
 PATCHES_DIR="${SCRIPT_DIR}/patches"
 
@@ -66,7 +67,7 @@ Usage: $(basename "$0") [options]
 Options:
   --profile <file>      Config profile (.conf or .json)
                         Default: auto-detects from profiles/
-  --target <target>     qemu|edk2|kernel|all (default: all)
+  --target <target>     qemu|edk2|kernel|deploy|all (default: all)
   --qemu-dir <path>     Override QEMU source dir (skip clone for QEMU)
   --edk2-dir <path>     Override EDK2 source dir (skip clone for EDK2)
   --kernel-dir <path>   Override kernel source dir (skip clone for kernel)
@@ -179,6 +180,7 @@ export ATD_RESOURCE_QEMU="${RESOURCE_QEMU}"
 export ATD_RESOURCE_EDK2="${RESOURCE_EDK2}"
 export ATD_RESOURCE_KERNEL="${RESOURCE_KERNEL}"
 export ATD_SCRIPT_DIR="${SCRIPT_DIR}"
+export ATD_BRAND="${BRAND}"
 
 # ===== Header =====
 atd_banner "PATCHER" "proxmox-atd Custom Patcher Engine"
@@ -328,7 +330,7 @@ phase_patch() {
             atd_backup_init "${SCRIPT_DIR}"
         fi
 
-        patch_qemu_brand "${QEMU_DIR}" "${BRAND}"       || (( PATCH_ERRORS++ ))
+        patch_qemu_brand "${QEMU_DIR}" "${BRAND}" "${PROFILE}" || (( PATCH_ERRORS++ ))
         patch_qemu_acpi "${QEMU_DIR}" "${PROFILE}"       || (( PATCH_ERRORS++ ))
         patch_qemu_smbios "${QEMU_DIR}" "${PROFILE}"     || (( PATCH_ERRORS++ ))
         patch_qemu_ide_sata "${QEMU_DIR}" "${PROFILE}"   || (( PATCH_ERRORS++ ))
@@ -453,30 +455,69 @@ phase_build() {
 
     atd_timer_start
 
+    # Build logs directory
+    local build_log_dir="${BUILD_DIR}/build-logs"
+    mkdir -p "${build_log_dir}"
+
     # --- QEMU ---
     if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-qemu-kvm"
-        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && make clean 2>/dev/null || true"
-        run_cmd "cd ${RESOURCE_QEMU}/pve-qemu && make -j${JOBS}"
-        atd_ok "QEMU build complete"
+        local qemu_log="${build_log_dir}/qemu-build.log"
+        if (( ATD_DRY_RUN )); then
+            atd_dry "cd ${RESOURCE_QEMU}/pve-qemu && make -j${JOBS}"
+        else
+            ( cd "${RESOURCE_QEMU}/pve-qemu" && make clean 2>/dev/null || true ) &>/dev/null
+            if ( cd "${RESOURCE_QEMU}/pve-qemu" && make -j${JOBS} ) &>"${qemu_log}"; then
+                atd_ok "QEMU build complete (log: ${qemu_log})"
+            else
+                atd_err "QEMU build FAILED"
+                atd_err "Last 30 lines of ${qemu_log}:"
+                tail -30 "${qemu_log}" 2>/dev/null | while IFS= read -r line; do
+                    atd_err "  ${line}"
+                done
+                atd_die "QEMU build failed — see ${qemu_log} for details" 1
+            fi
+        fi
     fi
 
     # --- EDK2 ---
     if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-edk2-firmware-ovmf"
-        # EDK2 debian/rules builds multiple architectures (OVMF, AAVMF, RISC-V)
-        # that all compile BaseTools internally. Using -jN at top level causes them
-        # to race on shared BaseTools binaries ("Text file busy" on antlr/dlg).
-        # Use sequential top-level make; each arch build handles its own parallelism.
-        run_cmd "cd ${RESOURCE_EDK2}/pve-edk2-firmware && make"
-        atd_ok "EDK2 build complete"
+        local edk2_log="${build_log_dir}/edk2-build.log"
+        if (( ATD_DRY_RUN )); then
+            atd_dry "cd ${RESOURCE_EDK2}/pve-edk2-firmware && make"
+        else
+            if ( cd "${RESOURCE_EDK2}/pve-edk2-firmware" && make ) &>"${edk2_log}"; then
+                atd_ok "EDK2 build complete (log: ${edk2_log})"
+            else
+                atd_err "EDK2 build FAILED"
+                atd_err "Last 30 lines of ${edk2_log}:"
+                tail -30 "${edk2_log}" 2>/dev/null | while IFS= read -r line; do
+                    atd_err "  ${line}"
+                done
+                atd_die "EDK2 build failed — see ${edk2_log} for details" 1
+            fi
+        fi
     fi
 
     # --- Kernel ---
     if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-kernel"
-        run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && make -j${JOBS}"
-        atd_ok "Kernel build complete"
+        local kernel_log="${build_log_dir}/kernel-build.log"
+        if (( ATD_DRY_RUN )); then
+            atd_dry "cd ${RESOURCE_KERNEL}/pve-kernel && make -j${JOBS}"
+        else
+            if ( cd "${RESOURCE_KERNEL}/pve-kernel" && make -j${JOBS} ) &>"${kernel_log}"; then
+                atd_ok "Kernel build complete (log: ${kernel_log})"
+            else
+                atd_err "Kernel build FAILED"
+                atd_err "Last 30 lines of ${kernel_log}:"
+                tail -30 "${kernel_log}" 2>/dev/null | while IFS= read -r line; do
+                    atd_err "  ${line}"
+                done
+                atd_die "Kernel build failed — see ${kernel_log} for details" 1
+            fi
+        fi
     fi
 
     atd_timer_stop "Build phase"
@@ -514,6 +555,16 @@ phase_collect() {
 
     # Copy ACPI tables from resources
     run_cmd "cp ${RESOURCE_QEMU}/*.aml ${artifacts}/ 2>/dev/null || true"
+
+    # Copy deploy scripts and Windows guest tools
+    if [[ -d "${RESOURCE_DEPLOY}" ]]; then
+        run_cmd "cp ${RESOURCE_DEPLOY}/pve-realpc-setup.sh ${artifacts}/ 2>/dev/null || true"
+        run_cmd "cp ${RESOURCE_DEPLOY}/pve-realpc-deploy-vm.sh ${artifacts}/ 2>/dev/null || true"
+        if [[ -d "${RESOURCE_DEPLOY}/windows" ]] && command -v zip &>/dev/null; then
+            ( cd "${RESOURCE_DEPLOY}" && zip -qr "${artifacts}/windows-guest-tools.zip" windows/ ) 2>/dev/null || true
+            atd_debug "Packed Windows guest tools"
+        fi
+    fi
 
     if (( ! ATD_DRY_RUN )); then
         atd_info "Artifacts in ${artifacts}/:"
@@ -563,6 +614,50 @@ phase_cleanup() {
     fi
 
     atd_ok "Cleanup complete"
+}
+
+# =============================================================
+#  PHASE 7: DEPLOY (Host Setup using locally-built artifacts)
+# =============================================================
+phase_deploy() {
+    atd_banner "PHASE 7" "Deploying Anti-Detection Packages"
+
+    local deploy_script="${RESOURCE_DEPLOY}/pve-realpc-setup.sh"
+    if [[ ! -f "${deploy_script}" ]]; then
+        atd_die "Deploy script not found: ${deploy_script}" 2
+    fi
+
+    local artifacts="${BUILD_DIR}/artifacts"
+    local deploy_work="/root/pve-realpc"
+
+    # Copy locally-built .deb files to the deploy script's expected location
+    atd_info "Staging locally-built artifacts for deployment ..."
+    run_cmd "mkdir -p ${deploy_work}"
+
+    # QEMU .deb
+    if ls "${artifacts}"/pve-qemu-kvm_*.deb 1>/dev/null 2>&1; then
+        run_cmd "cp ${artifacts}/pve-qemu-kvm_*.deb ${deploy_work}/"
+        atd_debug "Staged QEMU .deb"
+    fi
+
+    # EDK2/OVMF .deb
+    if ls "${artifacts}"/pve-edk2-firmware-ovmf_*.deb 1>/dev/null 2>&1; then
+        run_cmd "cp ${artifacts}/pve-edk2-firmware-ovmf_*.deb ${deploy_work}/"
+        atd_debug "Staged OVMF .deb"
+    fi
+
+    # ACPI tables
+    run_cmd "cp ${artifacts}/*.aml ${deploy_work}/ 2>/dev/null || true"
+
+    # Run the setup script with --skip-download (use our local artifacts)
+    atd_info "Running pve-realpc-setup.sh --skip-download ..."
+    if (( ATD_DRY_RUN )); then
+        atd_dry "bash ${deploy_script} --skip-download"
+    else
+        bash "${deploy_script}" --skip-download
+    fi
+
+    atd_ok "Host deployment complete"
 }
 
 # =============================================================
@@ -641,6 +736,24 @@ if (( ! SKIP_BUILD )); then
         echo ""
         atd_info "Or install everything at once:"
         atd_info "  dpkg -i ${artifacts}/*.deb"
+
+        # Offer deploy if running interactively (not CI)
+        if [[ -z "${CI:-}" ]] && [[ -z "${GITHUB_ACTIONS:-}" ]] && [[ -t 0 ]]; then
+            if [[ -f "${RESOURCE_DEPLOY}/pve-realpc-setup.sh" ]]; then
+                echo ""
+                atd_separator "Deploy Available"
+                atd_info "Deploy scripts are available to install packages and configure your host."
+                atd_info "This will run pve-realpc-setup.sh using the locally-built artifacts."
+                echo ""
+                if atd_confirm "Would you like to deploy now?"; then
+                    CURRENT_PHASE="deploy"; phase_deploy
+                    CURRENT_PHASE=""
+                else
+                    atd_skip "Deploy skipped. You can run it later with:"
+                    atd_info "  ./atd-patcher.sh --target deploy"
+                fi
+            fi
+        fi
     fi
 else
     atd_ok "Patches applied. Sources ready for manual build."

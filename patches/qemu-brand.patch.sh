@@ -10,6 +10,27 @@
 patch_qemu_brand() {
     local src="$1"
     local brand="$2"
+    local cfg="${3:-}"
+    local brand_lower
+    brand_lower="$(echo "${brand}" | tr '[:upper:]' '[:lower:]')"
+
+    # Build 16-char ACPI brand string from 4-char brand:
+    # QEMU pattern: QEMUQEQEMUQEMU (16 chars) / QEMUQEMUQEMUQEMU (16 chars)
+    # Brand:        ${b}${b:0:2}${b}${b:0:2}${b} / ${b}${b}${b}${b}
+    local brand_acpi14="${brand}${brand:0:2}${brand}${brand:0:2}"
+    local brand_acpi16="${brand}${brand}${brand}${brand}"
+
+    # Build hex fw_cfg magic from brand ("QEMU CFG" = 0x51454d5520434647)
+    # Format: first 4 chars of brand + " CFG" in big-endian hex
+    local brand_hex
+    brand_hex="0x$(printf '%s CFG' "${brand}" | xxd -p | tr -d '\n' | tr '[:lower:]' '[:upper:]')ULL"
+
+    # Read EDID vendor from config or derive from brand (3-char PNP code)
+    local edid_vendor
+    if [[ -n "${cfg}" ]] && [[ -f "${cfg}" ]]; then
+        edid_vendor="$(atd_config_get "${cfg}" display vendor)"
+    fi
+    edid_vendor="${edid_vendor:-${brand:0:3}}"
 
     atd_separator "Patching QEMU Brand Identifiers [brand=${brand}]"
 
@@ -67,7 +88,7 @@ patch_qemu_brand() {
 
     (( count++ )); atd_step ${count} ${total} "hw/acpi/core.c"
     atd_sed "${src}/hw/acpi/core.c" \
-        "s/\"QEMUQEQEMUQEMU/\"ASUSASASUSASUS/g" \
+        "s/\"QEMUQEQEMUQEMU/\"${brand_acpi14}/g" \
         "ACPI RSDP signature"
     atd_sed "${src}/hw/acpi/core.c" \
         "s/\"QEMU/\"${brand}/g" \
@@ -85,7 +106,7 @@ patch_qemu_brand() {
         "s/strcpy((void *) w, \"QEMU \")/strcpy((void *) w, \"${brand} \")/g" \
         "nseries OEM" --allow-missing
     atd_sed "${src}/hw/arm/nseries.c" \
-        "s/\"1.1.10-qemu\" : \"1.1.6-qemu\"/\"1.1.10-asus\" : \"1.1.6-asus\"/g" \
+        "s/\"1.1.10-qemu\" : \"1.1.6-qemu\"/\"1.1.10-${brand_lower}\" : \"1.1.6-${brand_lower}\"/g" \
         "nseries version" --allow-missing
 
     (( count++ )); atd_step ${count} ${total} "hw/arm/sbsa-ref.c"
@@ -96,8 +117,8 @@ patch_qemu_brand() {
     # -- Display --
     (( count++ )); atd_step ${count} ${total} "hw/display/edid-generate.c"
     atd_sed "${src}/hw/display/edid-generate.c" \
-        "s/info->vendor = \"RHT\"/info->vendor = \"DEL\"/g" \
-        "EDID vendor"
+        "s/info->vendor = \"RHT\"/info->vendor = \"${edid_vendor}\"/g" \
+        "EDID vendor (RHT->${edid_vendor})"
     atd_sed "${src}/hw/display/edid-generate.c" \
         "s/QEMU Monitor/${brand} Monitor/g" \
         "EDID monitor name"
@@ -193,8 +214,8 @@ patch_qemu_brand() {
     # -- Firmware config --
     (( count++ )); atd_step ${count} ${total} "hw/nvram/fw_cfg.c"
     atd_sed "${src}/hw/nvram/fw_cfg.c" \
-        "s/0x51454d5520434647ULL/0x4155535520434647ULL/g" \
-        "fw_cfg magic (QEMU CFG -> ASUS CFG)"
+        "s/0x51454d5520434647ULL/${brand_hex}/g" \
+        "fw_cfg magic (QEMU CFG -> ${brand} CFG)"
     (( count++ )); atd_step ${count} ${total} "hw/nvram/fw_cfg-acpi.c"
     atd_sed "${src}/hw/nvram/fw_cfg-acpi.c" \
         "s/\"QEMU/\"${brand}/g" \
@@ -216,7 +237,7 @@ patch_qemu_brand() {
         "s/\"QEMU/\"${brand}/g" \
         "e500 brand"
     atd_sed "${src}/hw/ppc/e500plat.c" \
-        "s/qemu-e500/asus-e500/g" \
+        "s/qemu-e500/${brand_lower}-e500/g" \
         "e500 machine name"
 
     # -- RISC-V --
@@ -337,7 +358,7 @@ patch_qemu_brand() {
         "s/\"QEMU0002/\"${brand}0002/g" \
         "fw_cfg device name"
     atd_sed "${src}/include/standard-headers/linux/qemu_fw_cfg.h" \
-        "s/0x51454d5520434647ULL/0x4155535520434647ULL/g" \
+        "s/0x51454d5520434647ULL/${brand_hex}/g" \
         "fw_cfg signature"
 
     # -- Migration --
@@ -352,7 +373,7 @@ patch_qemu_brand() {
     # -- Option ROM --
     (( count++ )); atd_step ${count} ${total} "pc-bios/optionrom"
     atd_sed "${src}/pc-bios/optionrom/optionrom.h" \
-        "s/0x51454d5520434647ULL/0x4155535520434647ULL/g" \
+        "s/0x51454d5520434647ULL/${brand_hex}/g" \
         "Option ROM signature"
 
     # -- S390 --
@@ -370,6 +391,42 @@ patch_qemu_brand() {
         "s/\"QEMU/\"${brand}/g" \
         "SeaBIOS HPPA SSDT brand" --allow-missing
 
+    # SeaBIOS: config.h (BUILD_APPNAME, CPUNAME)
+    atd_sed "${src}/roms/seabios/src/config.h" \
+        "s/\"Bochs\"/\"Intel\"/g" \
+        "SeaBIOS appname Bochs->Intel" --allow-missing
+    atd_sed "${src}/roms/seabios/src/config.h" \
+        "s/\"BOCHSCPU\"/\"INTELCPU\"/g" \
+        "SeaBIOS cpuname" --allow-missing
+    atd_sed "${src}/roms/seabios/src/config.h" \
+        "s/\"BOCHS \"/\"INTEL \"/g" \
+        "SeaBIOS appname6" --allow-missing
+    atd_sed "${src}/roms/seabios/src/config.h" \
+        "s/\"BXPC\"/\"INTE\"/g" \
+        "SeaBIOS appname4" --allow-missing
+
+    # SeaBIOS: blockcmd.c (SCSI vendor check -- must match brand)
+    atd_sed "${src}/roms/seabios/src/hw/blockcmd.c" \
+        "s/memcmp(vendor, \"QEMU\", 5)/memcmp(vendor, \"${brand}\", 5)/g" \
+        "SeaBIOS SCSI vendor" --allow-missing
+
+    # SeaBIOS: paravirt.c (KVM detection and debug strings)
+    atd_sed "${src}/roms/seabios/src/fw/paravirt.c" \
+        "s/\"KVMKVMKVM\"/\"intel\"/g" \
+        "SeaBIOS KVM signature" --allow-missing
+    atd_sed "${src}/roms/seabios/src/fw/paravirt.c" \
+        "s/Running on KVM/Running on intel/g" \
+        "SeaBIOS KVM dprintf" --allow-missing
+    atd_sed "${src}/roms/seabios/src/fw/paravirt.c" \
+        "s/Running on QEMU/Running on intel/g" \
+        "SeaBIOS QEMU dprintf" --allow-missing
+    atd_sed "${src}/roms/seabios/src/fw/paravirt.c" \
+        "s/Found QEMU fw_cfg/Found intel fw_cfg/g" \
+        "SeaBIOS fw_cfg dprintf" --allow-missing
+    atd_sed "${src}/roms/seabios/src/fw/paravirt.c" \
+        "s/QEMU fw_cfg DMA/intel fw_cfg DMA/g" \
+        "SeaBIOS DMA dprintf" --allow-missing
+
     # -- Target architectures --
     (( count++ )); atd_step ${count} ${total} "target/i386/cpu.c"
     atd_sed "${src}/target/i386/cpu.c" \
@@ -386,7 +443,7 @@ patch_qemu_brand() {
 
     (( count++ )); atd_step ${count} ${total} "target/s390x"
     atd_sed "${src}/target/s390x/tcg/misc_helper.c" \
-        "s/QEMUQEMUQEMUQEMU/ASUSASUSASUSASUS/g" \
+        "s/QEMUQEMUQEMUQEMU/${brand_acpi16}/g" \
         "S390X STSI brand"
     atd_sed "${src}/target/s390x/tcg/misc_helper.c" \
         "s/\"QEMU/\"${brand}/g" \

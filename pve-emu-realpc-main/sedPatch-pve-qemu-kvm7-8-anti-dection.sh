@@ -2,7 +2,11 @@
 #适用于给pve-qemu-kvm9里面的qemu打补丁使用，支持9 10版本(不支持kvm7和kvm8，再高没有测试)，直接放本脚本在qemu目录下，在make包之前在qemu目录运行一次本脚本就是，运行后你可以继续使用git工具生成qemu具体版本的patch文件
 #参考开源项目 https://github.com/zhaodice/proxmox-ve-anti-detection 编写，处理重复劳作
 #作者 AICodo
-brand="DELL" #这里修改品牌，仅4个大写英文字母
+brand="${ATD_BRAND:-ASUS}" # Read from ATD profile or default to ASUS (4 uppercase chars)
+brand_lower="$(echo "${brand}" | tr '[:upper:]' '[:lower:]')"
+brand_acpi14="${brand}${brand:0:2}${brand}${brand:0:2}"
+brand_acpi16="${brand}${brand}${brand}${brand}"
+brand_hex="0x$(printf '%s CFG' "${brand}" | xxd -p | tr -d '\n' | tr '[:lower:]' '[:upper:]')ULL"
 echo "开始sed工作"
 sed -i 's/QEMU v" QEMU_VERSION/'${brand}' v" QEMU_VERSION/g' block/vhdx.c
 sed -i 's/QEMU VVFAT", 10/'${brand}' VVFAT", 10/g' block/vvfat.c
@@ -21,15 +25,15 @@ else
 	sed -i 's/    Aml \*ssdt/       \/\/FUCK YOU~~~\n       return;\/\/do this once\n    Aml \*ssdt/g' hw/acpi/vmgenid.c
 	echo "hw/acpi/vmgenid.c 文件处理完成（第一次处理，只处理一次）"
 fi
-sed -i 's/"QEMUQEQEMUQEMU/"ASUSASASUSASUS/g' hw/acpi/core.c
+sed -i 's/"QEMUQEQEMUQEMU/"'${brand_acpi14}'/g' hw/acpi/core.c
 sed -i 's/"QEMU/"'${brand}'/g' hw/acpi/core.c
 sed -i 's/QEMU N800/'${brand}' N800/g' hw/arm/nseries.c
 sed -i 's/QEMU LCD panel/'${brand}' LCD panel/g' hw/arm/nseries.c
 sed -i 's/strcpy((void *) w, "QEMU ")/strcpy((void *) w, "'${brand}' ")/g' hw/arm/nseries.c
-sed -i 's/"1.1.10-qemu" : "1.1.6-qemu"/"1.1.10-asus" : "1.1.6-asus"/g' hw/arm/nseries.c
+sed -i 's/"1.1.10-qemu" : "1.1.6-qemu"/"1.1.10-'${brand_lower}'" : "1.1.6-'${brand_lower}'"/g' hw/arm/nseries.c
 sed -i "s/QEMU 'SBSA Reference' ARM Virtual Machine/"${brand}" 'SBSA Reference' ARM Real Machine/g" hw/arm/sbsa-ref.c
 sed -i 's/QEMU Sun Mouse/'${brand}' Sun Mouse/g' hw/char/escc.c
-sed -i 's/info->vendor = "RHT"/info->vendor = "DEL"/g' hw/display/edid-generate.c
+sed -i 's/info->vendor = "RHT"/info->vendor = "'${brand:0:3}'"/g' hw/display/edid-generate.c
 sed -i 's/QEMU Monitor/'${brand}' Monitor/g' hw/display/edid-generate.c
 sed -i 's/uint16_t model_nr = 0x1234;/uint16_t model_nr = 0xA05F;/g' hw/display/edid-generate.c
 
@@ -69,12 +73,12 @@ sed -i 's/"QEMU Virtio/"'${brand}'/g' hw/input/virtio-input-hid.c
 sed -i 's/QEMU M68K Virtual Machine/'${brand}' M68K Real Machine/g' hw/m68k/virt.c
 sed -i 's/"QEMU/"'${brand}'/g' hw/misc/pvpanic-isa.c
 sed -i 's/"QEMU/"'${brand}'/g' hw/nvme/ctrl.c
-sed -i 's/0x51454d5520434647ULL/0x4155535520434647ULL/g' hw/nvram/fw_cfg.c
+sed -i 's/0x51454d5520434647ULL/'${brand_hex}'/g' hw/nvram/fw_cfg.c
 sed -i 's/"QEMU/"'${brand}'/g' hw/nvram/fw_cfg-acpi.c
 sed -i 's/"QEMU/"'${brand}'/g' hw/pci-host/gpex.c
 sed -i 's/"QEMU/"'${brand}'/g' hw/ppc/prep.c
 sed -i 's/"QEMU/"'${brand}'/g' hw/ppc/e500plat.c
-sed -i 's/qemu-e500/asus-e500/g' hw/ppc/e500plat.c
+sed -i 's/qemu-e500/'${brand_lower}'-e500/g' hw/ppc/e500plat.c
 sed -i 's/"QEMU Virtual/"'${brand}'/g' hw/riscv/virt.c
 sed -i 's/"KVM Virtual/"'${brand}'/g' hw/riscv/virt.c
 sed -i 's/"QEMU/"'${brand}'/g' hw/riscv/virt.c
@@ -111,15 +115,15 @@ sed -i 's/"QEMU/"'${brand}'/g' hw/usb/u2f.c
 sed -i 's/"BOCHS/"INTEL/g' include/hw/acpi/aml-build.h
 sed -i 's/"BXPC/"PC8086/g' include/hw/acpi/aml-build.h
 sed -i 's/"QEMU0002/"'${brand}'0002/g' include/standard-headers/linux/qemu_fw_cfg.h
-sed -i 's/0x51454d5520434647ULL/0x4155535520434647ULL/g' include/standard-headers/linux/qemu_fw_cfg.h
+sed -i 's/0x51454d5520434647ULL/'${brand_hex}'/g' include/standard-headers/linux/qemu_fw_cfg.h
 sed -i 's/"QEMU/"'${brand}'/g' migration/migration.c
 sed -i 's/"QEMU/"'${brand}'/g' migration/rdma.c
-sed -i 's/0x51454d5520434647ULL/0x4155535520434647ULL/g' pc-bios/optionrom/optionrom.h
+sed -i 's/0x51454d5520434647ULL/'${brand_hex}'/g' pc-bios/optionrom/optionrom.h
 sed -i 's/"QEMU/"'${brand}'/g' pc-bios/s390-ccw/virtio-scsi.h
 sed -i 's/"QEMU/"'${brand}'/g' roms/seabios/src/fw/ssdt-misc.dsl
 sed -i 's/"QEMU/"'${brand}'/g' roms/seabios-hppa/src/fw/ssdt-misc.dsl
 sed -i 's/KVMKVMKVM\\0\\0\\0/\\1\\0\\0\\0\\0\\0\\0\\0\\0\\0\\0\\0/g' target/i386/kvm/kvm.c
-sed -i 's/QEMUQEMUQEMUQEMU/ASUSASUSASUSASUS/g' target/s390x/tcg/misc_helper.c
+sed -i 's/QEMUQEMUQEMUQEMU/'${brand_acpi16}'/g' target/s390x/tcg/misc_helper.c
 sed -i 's/"QEMU/"'${brand}'/g' target/s390x/tcg/misc_helper.c
 sed -i 's/"KVM/"ATX/g' target/s390x/tcg/misc_helper.c
 sed -i 's/t->bios_characteristics_extension_bytes\[1\] = 0x14;/t->bios_characteristics_extension_bytes\[1\] = 0x0F;/g' hw/smbios/smbios.c
