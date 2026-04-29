@@ -143,10 +143,22 @@ jobs:
 
       # Step 7: Upload artifacts
       - name: Upload artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: pve-atd-${{ github.event.inputs.target || 'qemu' }}
           path: release-artifacts/*
+
+      # Step 7b: Upload build logs (always, even on failure)
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build-logs/
+            *.log
+          if-no-files-found: ignore
 
       # Step 8: Get current time for release tag
       - name: Get current time

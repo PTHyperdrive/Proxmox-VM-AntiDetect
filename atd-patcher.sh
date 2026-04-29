@@ -488,27 +488,37 @@ phase_build() {
         local label="$1" log="$2"
         atd_err "${label} build FAILED"
 
-        # Try to find actual error lines first
-        local error_lines
-        error_lines=$(grep -n -i -E '(^FAILED:|: error:|: fatal error:|Error [0-9]+$|No space left on device|Cannot allocate memory|make\[[0-9]+\]: \*\*\*|ninja: build stopped)' "${log}" 2>/dev/null | tail -20)
-
-        if [[ -n "${error_lines}" ]]; then
-            atd_err "Error lines from ${log}:"
-            echo "${error_lines}" | while IFS= read -r line; do
-                atd_err "  ${line}"
-            done
+        # Check if log exists and has content
+        if [[ ! -f "${log}" ]]; then
+            atd_err "Build log not found: ${log}"
+            atd_err "The build may have failed before producing any output."
+            atd_err "Check that the source directory exists and is accessible."
+        elif [[ ! -s "${log}" ]]; then
+            atd_err "Build log is empty: ${log}"
+            atd_err "The build may have failed immediately (bad path or missing source)."
         else
-            atd_err "Last 50 lines of ${log}:"
-            tail -50 "${log}" 2>/dev/null | while IFS= read -r line; do
-                atd_err "  ${line}"
-            done
+            # Try to find actual error lines first
+            local error_lines
+            error_lines=$(grep -n -i -E '(^FAILED:|: error:|: fatal error:|Error [0-9]+$|No space left on device|Cannot allocate memory|make\[[0-9]+\]: \*\*\*|ninja: build stopped|dpkg-buildapi: error)' "${log}" 2>/dev/null | tail -20)
+
+            if [[ -n "${error_lines}" ]]; then
+                atd_err "Error lines from ${log}:"
+                while IFS= read -r line; do
+                    atd_err "  ${line}"
+                done <<< "${error_lines}"
+            else
+                atd_err "No obvious errors found. Last 50 lines of ${log}:"
+                local tail_lines
+                tail_lines=$(tail -50 "${log}" 2>/dev/null)
+                while IFS= read -r line; do
+                    atd_err "  ${line}"
+                done <<< "${tail_lines}"
+            fi
         fi
 
         # Report disk space (common CI failure cause)
         atd_err "Disk usage at failure:"
-        df -h / 2>/dev/null | while IFS= read -r line; do
-            atd_err "  ${line}"
-        done
+        atd_err "  $(df -h / 2>/dev/null | tail -1)"
     }
 
     # --- QEMU ---
