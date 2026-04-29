@@ -58,12 +58,12 @@ patch_edk2_brand() {
     for inf in "${virtio_infs[@]}"; do
         local target="${src}/${inf}"
         if [[ -f "${target}" ]]; then
-            # Replace Virtio -> ${brand}io, Virt -> ${brand}
-            sed -i "s/= Virtio/= ${brand}io/g" "${target}" 2>/dev/null
-            sed -i "s/= VirtNor/= ${brand}Nor/g" "${target}" 2>/dev/null
-            sed -i "s/= QemuRamfb/= ${brand}Ramfb/g" "${target}" 2>/dev/null
-            sed -i "s/= QemuVideo/= ${brand}Video/g" "${target}" 2>/dev/null
-            sed -i "s/= VirtHsti/= ${brand}Hsti/g" "${target}" 2>/dev/null
+            # Replace only BASE_NAME values -- anchored to avoid corrupting ENTRY_POINT etc.
+            sed -i "/^[[:space:]]*BASE_NAME/s/= Virtio/= ${brand}io/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= VirtNor/= ${brand}Nor/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= QemuRamfb/= ${brand}Ramfb/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= QemuVideo/= ${brand}Video/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= VirtHsti/= ${brand}Hsti/g" "${target}" 2>/dev/null
             atd_debug "Patched $(basename "${inf}")"
         fi
     done
@@ -84,14 +84,15 @@ patch_edk2_brand() {
     for inf in "${xen_infs[@]}"; do
         local target="${src}/${inf}"
         if [[ -f "${target}" ]]; then
-            sed -i "s/= Xen/= ${brand}/g" "${target}" 2>/dev/null
-            sed -i "s/= XenAcpi/= ${brand}Acpi/g" "${target}" 2>/dev/null
-            sed -i "s/= XenBus/= ${brand}Bus/g" "${target}" 2>/dev/null
-            sed -i "s/= XenIo/= ${brand}Io/g" "${target}" 2>/dev/null
-            sed -i "s/= XenPlatform/= ${brand}Platform/g" "${target}" 2>/dev/null
-            sed -i "s/= XenPvBlk/= ${brand}PvBlk/g" "${target}" 2>/dev/null
-            sed -i "s/= XenReset/= ${brand}Reset/g" "${target}" 2>/dev/null
-            sed -i "s/= XenSmbios/= ${brand}Smbios/g" "${target}" 2>/dev/null
+            # Replace only BASE_NAME values -- anchored to avoid corrupting ENTRY_POINT etc.
+            sed -i "/^[[:space:]]*BASE_NAME/s/= Xen/= ${brand}/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= XenAcpi/= ${brand}Acpi/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= XenBus/= ${brand}Bus/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= XenIo/= ${brand}Io/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= XenPlatform/= ${brand}Platform/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= XenPvBlk/= ${brand}PvBlk/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= XenReset/= ${brand}Reset/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= XenSmbios/= ${brand}Smbios/g" "${target}" 2>/dev/null
             atd_debug "Patched $(basename "${inf}")"
         fi
     done
@@ -125,15 +126,12 @@ patch_edk2_brand() {
     for inf in "${lib_infs[@]}"; do
         local target="${src}/${inf}"
         if [[ -f "${target}" ]]; then
-            sed -i "s/= Qemu/= ${brand}/g" "${target}" 2>/dev/null
-            sed -i "s/= Xen/= ${brand}/g" "${target}" 2>/dev/null
-            sed -i "s/= Virtio/= ${brand}io/g" "${target}" 2>/dev/null
-            sed -i "s/= VirtNor/= ${brand}Nor/g" "${target}" 2>/dev/null
-            sed -i "s/= Base${brand}/= Base${brand}/g" "${target}" 2>/dev/null
-            sed -i "s/= Dxe${brand}/= Dxe${brand}/g" "${target}" 2>/dev/null
-            sed -i "s/= Pei${brand}/= Pei${brand}/g" "${target}" 2>/dev/null
-            sed -i "s/= Generic${brand}/= Generic${brand}/g" "${target}" 2>/dev/null
-            sed -i "s/= X86Qemu/= X86${brand}/g" "${target}" 2>/dev/null
+            # Replace only BASE_NAME values -- anchored to avoid corrupting LIBRARY_CLASS etc.
+            sed -i "/^[[:space:]]*BASE_NAME/s/= Qemu/= ${brand}/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= Xen/= ${brand}/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= Virtio/= ${brand}io/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= VirtNor/= ${brand}Nor/g" "${target}" 2>/dev/null
+            sed -i "/^[[:space:]]*BASE_NAME/s/= X86Qemu/= X86${brand}/g" "${target}" 2>/dev/null
             atd_debug "Patched $(basename "${inf}")"
         fi
     done
@@ -141,7 +139,7 @@ patch_edk2_brand() {
     # -- VirtHstiDxe --
     local vhsti="${src}/OvmfPkg/VirtHstiDxe/VirtHstiDxe.inf"
     if [[ -f "${vhsti}" ]]; then
-        sed -i "s/= VirtHstiDxe/= ${brand}HstiDxe/g" "${vhsti}" 2>/dev/null
+        sed -i "/^[[:space:]]*BASE_NAME/s/= VirtHstiDxe/= ${brand}HstiDxe/g" "${vhsti}" 2>/dev/null
         atd_debug "Patched VirtHstiDxe.inf"
     fi
 
