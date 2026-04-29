@@ -476,7 +476,11 @@ phase_build() {
     # --- EDK2 ---
     if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-edk2-firmware-ovmf"
-        run_cmd "cd ${RESOURCE_EDK2}/pve-edk2-firmware && make -j${JOBS}"
+        # EDK2 debian/rules builds multiple architectures (OVMF, AAVMF, RISC-V)
+        # that all compile BaseTools internally. Using -jN at top level causes them
+        # to race on shared BaseTools binaries ("Text file busy" on antlr/dlg).
+        # Use sequential top-level make; each arch build handles its own parallelism.
+        run_cmd "cd ${RESOURCE_EDK2}/pve-edk2-firmware && make"
         atd_ok "EDK2 build complete"
     fi
 

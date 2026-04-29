@@ -345,7 +345,9 @@ phase_build() {
 
     if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-edk2-firmware-ovmf"
-        run_cmd "cd ${OUTPUT_DIR}/pve-edk2-firmware && make -j${JOBS}"
+        # EDK2 debian/rules spawns multi-arch builds that share BaseTools.
+        # Top-level -jN causes race conditions. Let each arch handle parallelism.
+        run_cmd "cd ${OUTPUT_DIR}/pve-edk2-firmware && make"
         atd_ok "EDK2 build complete"
     fi
 
