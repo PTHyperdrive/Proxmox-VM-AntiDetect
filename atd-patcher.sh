@@ -595,7 +595,7 @@ atd_timer_stop "Full pipeline"
 
 atd_banner "COMPLETE" "Build finished"
 if (( ! SKIP_BUILD )); then
-    local artifacts="${BUILD_DIR}/artifacts"
+    artifacts="${BUILD_DIR}/artifacts"
     atd_ok "Artifacts ready in: ${artifacts}/"
 
     # List .deb files
