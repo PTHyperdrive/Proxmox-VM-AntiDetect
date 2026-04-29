@@ -4,9 +4,9 @@ apt-get install -y libacl1-dev libaio-dev libattr1-dev libcap-ng-dev libcurl4-gn
 apt install -y dh-python asciidoc-base bison dwarves flex libdw-dev libelf-dev libiberty-dev libslang2-dev lz4 python3-dev xmlto rsync gawk
 ls
 df -h
-git clone git://git.proxmox.com/git/pve-kernel.git
+git clone -b trixie-6.17 git://git.proxmox.com/git/pve-kernel.git
 cd pve-kernel
-#git reset --hard 91ca55897a7e9a1451833216479098b05e6bc0f6 # bump version to 6.14.8-2
+# For a specific version, uncomment and set the commit hash:
 apt install devscripts -y
 mk-build-deps --install
 git submodule update --init --recursive --force #强制更新所有子模块

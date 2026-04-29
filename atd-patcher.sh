@@ -295,11 +295,24 @@ phase_clone() {
 
     # --- Kernel ---
     if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+        # Read kernel branch from profile (default: trixie-6.17 for PVE 9)
+        local kernel_branch
+        kernel_branch="$(atd_config_get "${PROFILE}" kvm kernel_branch)"
+        kernel_branch="${kernel_branch:-trixie-6.17}"
+
         if [[ ! -d "${RESOURCE_KERNEL}/pve-kernel" ]]; then
-            atd_step 3 3 "Cloning pve-kernel ..."
-            run_cmd "git clone git://git.proxmox.com/git/pve-kernel.git ${RESOURCE_KERNEL}/pve-kernel"
+            atd_step 3 3 "Cloning pve-kernel (branch: ${kernel_branch}) ..."
+            run_cmd "git clone -b ${kernel_branch} git://git.proxmox.com/git/pve-kernel.git ${RESOURCE_KERNEL}/pve-kernel"
         else
             atd_skip "pve-kernel already exists"
+            # Ensure correct branch if already cloned
+            local current_branch
+            current_branch="$(cd "${RESOURCE_KERNEL}/pve-kernel" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+            if [[ -n "${current_branch}" ]] && [[ "${current_branch}" != "${kernel_branch}" ]]; then
+                atd_warn "pve-kernel is on branch '${current_branch}', expected '${kernel_branch}'"
+                atd_info "Switching to ${kernel_branch} ..."
+                run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && git checkout ${kernel_branch} 2>/dev/null || git fetch origin ${kernel_branch} && git checkout ${kernel_branch}"
+            fi
         fi
         atd_info "Setting up pve-kernel submodules + build-deps ..."
         run_cmd "cd ${RESOURCE_KERNEL}/pve-kernel && mk-build-deps --install 2>/dev/null || true"
@@ -459,6 +472,34 @@ phase_build() {
     local build_log_dir="${BUILD_DIR}/build-logs"
     mkdir -p "${build_log_dir}"
 
+    # Helper: extract meaningful errors from a build log
+    _build_fail_report() {
+        local label="$1" log="$2"
+        atd_err "${label} build FAILED"
+
+        # Try to find actual error lines first
+        local error_lines
+        error_lines=$(grep -n -i -E '(^FAILED:|: error:|: fatal error:|Error [0-9]+$|No space left on device|Cannot allocate memory|make\[[0-9]+\]: \*\*\*|ninja: build stopped)' "${log}" 2>/dev/null | tail -20)
+
+        if [[ -n "${error_lines}" ]]; then
+            atd_err "Error lines from ${log}:"
+            echo "${error_lines}" | while IFS= read -r line; do
+                atd_err "  ${line}"
+            done
+        else
+            atd_err "Last 50 lines of ${log}:"
+            tail -50 "${log}" 2>/dev/null | while IFS= read -r line; do
+                atd_err "  ${line}"
+            done
+        fi
+
+        # Report disk space (common CI failure cause)
+        atd_err "Disk usage at failure:"
+        df -h / 2>/dev/null | while IFS= read -r line; do
+            atd_err "  ${line}"
+        done
+    }
+
     # --- QEMU ---
     if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-qemu-kvm"
@@ -470,11 +511,7 @@ phase_build() {
             if ( cd "${RESOURCE_QEMU}/pve-qemu" && make -j${JOBS} ) &>"${qemu_log}"; then
                 atd_ok "QEMU build complete (log: ${qemu_log})"
             else
-                atd_err "QEMU build FAILED"
-                atd_err "Last 30 lines of ${qemu_log}:"
-                tail -30 "${qemu_log}" 2>/dev/null | while IFS= read -r line; do
-                    atd_err "  ${line}"
-                done
+                _build_fail_report "QEMU" "${qemu_log}"
                 atd_die "QEMU build failed — see ${qemu_log} for details" 1
             fi
         fi
@@ -490,11 +527,7 @@ phase_build() {
             if ( cd "${RESOURCE_EDK2}/pve-edk2-firmware" && make ) &>"${edk2_log}"; then
                 atd_ok "EDK2 build complete (log: ${edk2_log})"
             else
-                atd_err "EDK2 build FAILED"
-                atd_err "Last 30 lines of ${edk2_log}:"
-                tail -30 "${edk2_log}" 2>/dev/null | while IFS= read -r line; do
-                    atd_err "  ${line}"
-                done
+                _build_fail_report "EDK2" "${edk2_log}"
                 atd_die "EDK2 build failed — see ${edk2_log} for details" 1
             fi
         fi
@@ -510,11 +543,7 @@ phase_build() {
             if ( cd "${RESOURCE_KERNEL}/pve-kernel" && make -j${JOBS} ) &>"${kernel_log}"; then
                 atd_ok "Kernel build complete (log: ${kernel_log})"
             else
-                atd_err "Kernel build FAILED"
-                atd_err "Last 30 lines of ${kernel_log}:"
-                tail -30 "${kernel_log}" 2>/dev/null | while IFS= read -r line; do
-                    atd_err "  ${line}"
-                done
+                _build_fail_report "Kernel" "${kernel_log}"
                 atd_die "Kernel build failed — see ${kernel_log} for details" 1
             fi
         fi
