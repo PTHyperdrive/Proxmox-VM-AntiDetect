@@ -483,7 +483,7 @@ phase_build() {
     local build_log_dir="${BUILD_DIR}/build-logs"
     mkdir -p "${build_log_dir}"
 
-    # Helper: extract meaningful errors from a build log
+    # Helper: extract meaningful errors from a build log (disk-safe: no temp files)
     _build_fail_report() {
         local label="$1" log="$2"
         atd_err "${label} build FAILED"
@@ -497,28 +497,42 @@ phase_build() {
             atd_err "Build log is empty: ${log}"
             atd_err "The build may have failed immediately (bad path or missing source)."
         else
-            # Try to find actual error lines first
+            # Try to find actual error lines first (use printf, avoid here-strings)
             local error_lines
-            error_lines=$(grep -n -i -E '(^FAILED:|: error:|: fatal error:|Error [0-9]+$|No space left on device|Cannot allocate memory|make\[[0-9]+\]: \*\*\*|ninja: build stopped|dpkg-buildapi: error)' "${log}" 2>/dev/null | tail -20)
+            error_lines=$(grep -n -i -E '(^FAILED:|: error:|: fatal error:|Error [0-9]+$|No space left on device|Cannot allocate memory|make\[[0-9]+\]: \*\*\*|ninja: build stopped|dpkg-buildapi: error)' "${log}" 2>/dev/null | tail -20) || true
 
             if [[ -n "${error_lines}" ]]; then
                 atd_err "Error lines from ${log}:"
-                while IFS= read -r line; do
-                    atd_err "  ${line}"
-                done <<< "${error_lines}"
+                printf '%s\n' "${error_lines}" | while IFS= read -r _l; do atd_err "  ${_l}"; done
             else
                 atd_err "No obvious errors found. Last 50 lines of ${log}:"
-                local tail_lines
-                tail_lines=$(tail -50 "${log}" 2>/dev/null)
-                while IFS= read -r line; do
-                    atd_err "  ${line}"
-                done <<< "${tail_lines}"
+                tail -50 "${log}" 2>/dev/null | while IFS= read -r _l; do atd_err "  ${_l}"; done
             fi
         fi
 
         # Report disk space (common CI failure cause)
         atd_err "Disk usage at failure:"
         atd_err "  $(df -h / 2>/dev/null | tail -1)"
+    }
+
+    # Helper: collect .deb files from a build dir and purge build artifacts to free disk
+    _collect_and_clean() {
+        local label="$1" src_dir="$2" artifacts="$3"
+        shift 3
+        # Collect .deb files matching patterns
+        for pattern in "$@"; do
+            find "${src_dir}" -maxdepth 2 -name "${pattern}" ! -name "*dbgsym*" -exec cp {} "${artifacts}/" \; 2>/dev/null || true
+        done
+        # When building all targets, clean build tree to free disk for next target
+        if [[ "${TARGET}" == "all" ]]; then
+            local freed
+            freed=$(du -sh "${src_dir}" 2>/dev/null | cut -f1)
+            atd_info "Cleaning ${label} build tree to free ~${freed:-??} ..."
+            ( cd "${src_dir}" && make clean 2>/dev/null || true ) &>/dev/null
+            # Remove unpacked source dirs (massive for kernel/QEMU)
+            find "${src_dir}" -maxdepth 1 -type d -name "*.orig" -exec rm -rf {} \; 2>/dev/null || true
+            atd_info "Disk after cleanup: $(df -h / 2>/dev/null | tail -1)"
+        fi
     }
 
     # --- QEMU ---
@@ -531,6 +545,10 @@ phase_build() {
             ( cd "${RESOURCE_QEMU}/pve-qemu" && make clean 2>/dev/null || true ) &>/dev/null
             if ( cd "${RESOURCE_QEMU}/pve-qemu" && make -j${JOBS} ) &>"${qemu_log}"; then
                 atd_ok "QEMU build complete (log: ${qemu_log})"
+                # Collect QEMU .debs immediately, then clean if building more targets
+                local artifacts="${BUILD_DIR}/artifacts"
+                mkdir -p "${artifacts}"
+                _collect_and_clean "QEMU" "${RESOURCE_QEMU}/pve-qemu" "${artifacts}" "pve-qemu-kvm_*.deb"
             else
                 _build_fail_report "QEMU" "${qemu_log}"
                 atd_die "QEMU build failed — see ${qemu_log} for details" 1
@@ -547,6 +565,11 @@ phase_build() {
         else
             if ( cd "${RESOURCE_EDK2}/pve-edk2-firmware" && make ) &>"${edk2_log}"; then
                 atd_ok "EDK2 build complete (log: ${edk2_log})"
+                # Collect EDK2 .debs immediately, then clean if building more targets
+                local artifacts="${BUILD_DIR}/artifacts"
+                mkdir -p "${artifacts}"
+                _collect_and_clean "EDK2" "${RESOURCE_EDK2}/pve-edk2-firmware" "${artifacts}" \
+                    "pve-edk2-firmware-ovmf_*.deb" "pve-edk2-firmware_*.deb"
             else
                 _build_fail_report "EDK2" "${edk2_log}"
                 atd_die "EDK2 build failed — see ${edk2_log} for details" 1
@@ -558,6 +581,7 @@ phase_build() {
     if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
         atd_separator "Building pve-kernel"
         local kernel_log="${build_log_dir}/kernel-build.log"
+        atd_info "Disk before kernel build: $(df -h / 2>/dev/null | tail -1)"
         if (( ATD_DRY_RUN )); then
             atd_dry "cd ${RESOURCE_KERNEL}/pve-kernel && make -j${JOBS}"
         else
