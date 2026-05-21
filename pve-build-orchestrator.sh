@@ -24,11 +24,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/atd-styles.sh"
 
 # ===== Environment Detection =====
-# Detect where we're running: GitHub Actions container, PVE host, or generic Debian.
+# Detect where we're running: GitHub Actions, Docker container, PVE host, or generic Debian.
 # This MUST happen before any phase logic so every function can branch on ATD_ENV.
+#   ci      = GitHub Actions (GITHUB_ACTIONS env var set)
+#   docker  = Docker container (/.dockerenv exists, but not GH Actions)
+#   pve     = Live Proxmox VE host (pveversion binary exists)
+#   debian  = Generic Debian / unknown
 _detect_environment() {
-    if [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${CI:-}" ]]; then
+    if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
         ATD_ENV="ci"
+    elif [[ -f /.dockerenv ]] || grep -q 'docker\|containerd' /proc/1/cgroup 2>/dev/null; then
+        ATD_ENV="docker"
     elif command -v pveversion &>/dev/null; then
         ATD_ENV="pve"
     else
@@ -162,6 +168,9 @@ phase_preflight() {
             [[ -n "${GITHUB_RUN_ID:-}" ]] && atd_info "Run ID: ${GITHUB_RUN_ID}"
             [[ -n "${GITHUB_SHA:-}" ]]    && atd_info "Commit: ${GITHUB_SHA:0:8}"
             ;;
+        docker)
+            atd_info "Environment: ${C_GREEN}Docker Container${C_RESET}"
+            ;;
         pve)
             atd_info "Environment: ${C_GREEN}Proxmox VE Host${C_RESET}"
             atd_info "PVE: $(pveversion 2>/dev/null || echo 'detected')"
@@ -175,8 +184,8 @@ phase_preflight() {
     # -- Root check --
     # CI containers typically run as root already; PVE/Debian require sudo.
     if [[ "${EUID:-$(id -u)}" -ne 0 ]] && (( ! ATD_DRY_RUN )); then
-        if [[ "${ATD_ENV}" == "ci" ]]; then
-            atd_warn "Running as non-root in CI -- some steps may fail"
+        if [[ "${ATD_ENV}" == "ci" ]] || [[ "${ATD_ENV}" == "docker" ]]; then
+            atd_warn "Running as non-root in ${ATD_ENV} -- some steps may fail"
         else
             atd_die "This script must be run as root (sudo)" 2
         fi
@@ -194,8 +203,8 @@ phase_preflight() {
     avail_gb=$(( avail_kb / 1024 / 1024 ))
     atd_info "Available disk: ${avail_gb}GB"
     if (( avail_gb < 15 )); then
-        if [[ "${ATD_ENV}" == "ci" ]]; then
-            atd_warn "Low disk space in CI (${avail_gb}GB). Build may fail."
+        if [[ "${ATD_ENV}" == "ci" ]] || [[ "${ATD_ENV}" == "docker" ]]; then
+            atd_warn "Low disk space in ${ATD_ENV} (${avail_gb}GB). Build may fail."
         else
             atd_die "Insufficient disk space. Need 15GB+, have ${avail_gb}GB" 3
         fi
@@ -262,6 +271,10 @@ phase_deps() {
             # repos configured -- install the PVE dev lib + jq for release logic
             DEPS+=(libproxmox-backup-qemu0-dev pve-qemu-kvm jq)
             ;;
+        docker)
+            # Docker build image has PVE repos; include PVE dev lib
+            DEPS+=(libproxmox-backup-qemu0-dev jq)
+            ;;
         debian)
             atd_info "Generic Debian: skipping PVE-specific packages"
             ;;
@@ -320,6 +333,11 @@ phase_deps() {
             # Use --allow-downgrades because the PVE Docker image may have
             # slightly newer/older versions pinned than the repo provides.
             run_cmd "apt-get install -y -qq --allow-downgrades ${DEPS[*]}"
+            ;;
+
+        docker)
+            # Docker container -- clean environment, no hooks.
+            run_cmd "apt-get install -y -qq ${DEPS[*]}"
             ;;
 
         debian)

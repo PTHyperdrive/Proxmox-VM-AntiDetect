@@ -1,3 +1,7 @@
 # Internal documentation / checkpoints
 Checkpoint-*.md
 CODING-STYLES.md
+
+# Build artifacts
+build-output/
+*.log

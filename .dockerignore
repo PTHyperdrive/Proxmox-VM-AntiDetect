@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------
+#  proxmox-atd :: Docker Build Context Exclusions
+# ---------------------------------------------------------------
+
+# Git
+.git
+.github
+
+# Build output (mounted as volume, not baked into image)
+build-output/
+*.log
+
+# Cloned repos (will be cloned fresh inside container)
+pve-emu-realpc-main/pve-qemu/
+pve-emu-realpc_edk2-firmware-ovmf-main/pve-edk2-firmware/
+pve-emu-realpc_kernel-main/pve-kernel/
+
+# IDE / OS junk
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store
+
+# Internal docs
+Checkpoint-*.md
+CODING-STYLES.md
