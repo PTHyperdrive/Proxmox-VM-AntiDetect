@@ -23,6 +23,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/atd-styles.sh"
 
+# ===== Environment Detection =====
+# Detect where we're running: GitHub Actions container, PVE host, or generic Debian.
+# This MUST happen before any phase logic so every function can branch on ATD_ENV.
+_detect_environment() {
+    if [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${CI:-}" ]]; then
+        ATD_ENV="ci"
+    elif command -v pveversion &>/dev/null; then
+        ATD_ENV="pve"
+    else
+        ATD_ENV="debian"
+    fi
+    export ATD_ENV
+}
+_detect_environment
+
 # ===== Defaults =====
 TARGET="all"
 PROFILE="${SCRIPT_DIR}/profiles/default.conf"
@@ -140,39 +155,58 @@ phase_preflight() {
     CURRENT_PHASE="preflight"
     atd_banner "PHASE 1/8" "PREFLIGHT -- Environment Validation"
 
-    # Check root
+    # -- Environment mode --
+    case "${ATD_ENV}" in
+        ci)
+            atd_info "Environment: ${C_GREEN}GitHub Actions CI${C_RESET}"
+            [[ -n "${GITHUB_RUN_ID:-}" ]] && atd_info "Run ID: ${GITHUB_RUN_ID}"
+            [[ -n "${GITHUB_SHA:-}" ]]    && atd_info "Commit: ${GITHUB_SHA:0:8}"
+            ;;
+        pve)
+            atd_info "Environment: ${C_GREEN}Proxmox VE Host${C_RESET}"
+            atd_info "PVE: $(pveversion 2>/dev/null || echo 'detected')"
+            ;;
+        debian)
+            atd_info "Environment: ${C_YELLOW}Generic Debian${C_RESET}"
+            atd_warn "PVE not detected -- building in generic Debian mode"
+            ;;
+    esac
+
+    # -- Root check --
+    # CI containers typically run as root already; PVE/Debian require sudo.
     if [[ "${EUID:-$(id -u)}" -ne 0 ]] && (( ! ATD_DRY_RUN )); then
-        atd_die "This script must be run as root (sudo)" 2
+        if [[ "${ATD_ENV}" == "ci" ]]; then
+            atd_warn "Running as non-root in CI -- some steps may fail"
+        else
+            atd_die "This script must be run as root (sudo)" 2
+        fi
     fi
 
-    # Check OS
+    # -- OS info --
     if [[ -f /etc/os-release ]]; then
         source /etc/os-release
         atd_info "OS: ${PRETTY_NAME:-${ID} ${VERSION_ID}}"
     fi
 
-    # Check for PVE
-    if command -v pveversion &>/dev/null; then
-        atd_info "PVE: $(pveversion 2>/dev/null || echo 'detected')"
-    else
-        atd_warn "PVE not detected -- building in generic Debian mode"
-    fi
-
-    # Check disk space (need ~30GB for full build)
-    local avail_kb
+    # -- Disk space (need ~30GB for full build, ~15GB minimum) --
+    local avail_kb avail_gb
     avail_kb=$(df --output=avail "${SCRIPT_DIR}" 2>/dev/null | tail -1 | tr -d ' ')
-    local avail_gb=$(( avail_kb / 1024 / 1024 ))
+    avail_gb=$(( avail_kb / 1024 / 1024 ))
     atd_info "Available disk: ${avail_gb}GB"
     if (( avail_gb < 15 )); then
-        atd_die "Insufficient disk space. Need 15GB+, have ${avail_gb}GB" 3
+        if [[ "${ATD_ENV}" == "ci" ]]; then
+            atd_warn "Low disk space in CI (${avail_gb}GB). Build may fail."
+        else
+            atd_die "Insufficient disk space. Need 15GB+, have ${avail_gb}GB" 3
+        fi
     fi
 
-    # Check RAM
+    # -- RAM --
     local total_mb
     total_mb=$(free -m 2>/dev/null | awk '/Mem:/{print $2}')
     atd_info "RAM: ${total_mb:-unknown}MB"
 
-    # Validate profile
+    # -- Validate profile --
     if [[ ! -f "${PROFILE}" ]]; then
         atd_die "Profile not found: ${PROFILE}" 2
     fi
@@ -182,12 +216,13 @@ phase_preflight() {
     atd_info "Brand: ${brand:-ASUS}"
 
     atd_summary "Build Configuration" \
-        "Target"     "${TARGET}" \
-        "Profile"    "$(basename "${PROFILE}")" \
-        "Output"     "${OUTPUT_DIR}" \
-        "Jobs"       "${JOBS}" \
-        "Build ID"   "${BUILD_TS}" \
-        "Log File"   "${ATD_LOG_FILE}"
+        "Environment" "${ATD_ENV}" \
+        "Target"      "${TARGET}" \
+        "Profile"     "$(basename "${PROFILE}")" \
+        "Output"      "${OUTPUT_DIR}" \
+        "Jobs"        "${JOBS}" \
+        "Build ID"    "${BUILD_TS}" \
+        "Log File"    "${ATD_LOG_FILE}"
 
     atd_ok "Preflight checks passed"
 }
@@ -202,7 +237,7 @@ phase_deps() {
         return 0
     fi
 
-    # Unified dependency list (deduped across all three build scripts)
+    # ── Core dependency list (shared across all targets) ──
     local DEPS=(
         build-essential git devscripts meson quilt
         libacl1-dev libaio-dev libattr1-dev libcap-ng-dev
@@ -217,12 +252,22 @@ phase_deps() {
         qemu-utils uuid-dev xorriso curl
     )
 
-    # PVE-specific deps
-    if command -v pveversion &>/dev/null; then
-        DEPS+=(libproxmox-backup-qemu0-dev)
-    fi
+    # ── Environment-specific deps ──
+    case "${ATD_ENV}" in
+        pve)
+            DEPS+=(libproxmox-backup-qemu0-dev)
+            ;;
+        ci)
+            # CI container (ghcr.io/pthyperdrive/pve-docker9) already has PVE
+            # repos configured -- install the PVE dev lib + jq for release logic
+            DEPS+=(libproxmox-backup-qemu0-dev pve-qemu-kvm jq)
+            ;;
+        debian)
+            atd_info "Generic Debian: skipping PVE-specific packages"
+            ;;
+    esac
 
-    # Kernel-specific deps
+    # ── Target-specific deps ──
     if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
         DEPS+=(
             dh-python asciidoc-base bison dwarves flex
@@ -230,17 +275,60 @@ phase_deps() {
             lz4 python3-dev xmlto rsync gawk
         )
     fi
-
-    # EDK2-specific deps
     if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
         DEPS+=(gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu)
     fi
 
     atd_info "Installing ${#DEPS[@]} packages ..."
     run_cmd "apt-get update -qq"
-    run_cmd "apt-get install -y -qq ${DEPS[*]}"
 
-    atd_ok "Dependencies installed"
+    # ── Install strategy depends on environment ──
+    case "${ATD_ENV}" in
+        pve)
+            # On a live PVE host the pve-apt-hook blocks any apt operation that
+            # would transitively remove the proxmox-ve meta-package.  Dev libs
+            # can trigger this as a false positive.  Temporarily divert the hook.
+            local pve_hook="/usr/share/proxmox-ve/pve-apt-hook"
+            local hook_diverted=0
+            if [[ -f "${pve_hook}" ]]; then
+                atd_info "Temporarily diverting pve-apt-hook ..."
+                run_cmd "dpkg-divert --local --divert ${pve_hook}.disabled --rename ${pve_hook}"
+                hook_diverted=1
+            fi
+
+            # Safety: restore hook even on failure
+            _restore_pve_hook() {
+                if (( hook_diverted )); then
+                    dpkg-divert --local --rename --remove "${pve_hook}" 2>/dev/null || true
+                fi
+            }
+            trap '_restore_pve_hook; cleanup_on_error' EXIT
+
+            run_cmd "apt-get install -y -qq --no-remove ${DEPS[*]}"
+
+            # Restore hook immediately after install
+            if (( hook_diverted )); then
+                atd_info "Restoring pve-apt-hook ..."
+                run_cmd "dpkg-divert --local --rename --remove ${pve_hook}"
+                hook_diverted=0
+            fi
+            trap cleanup_on_error EXIT
+            ;;
+
+        ci)
+            # CI container -- no pve-apt-hook, no interactive prompts.
+            # Use --allow-downgrades because the PVE Docker image may have
+            # slightly newer/older versions pinned than the repo provides.
+            run_cmd "apt-get install -y -qq --allow-downgrades ${DEPS[*]}"
+            ;;
+
+        debian)
+            # Plain Debian -- straightforward install.
+            run_cmd "apt-get install -y -qq ${DEPS[*]}"
+            ;;
+    esac
+
+    atd_ok "Dependencies installed (env=${ATD_ENV})"
 }
 
 # ===== PHASE 3: CLONE =====
