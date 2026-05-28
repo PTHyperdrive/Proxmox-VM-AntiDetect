@@ -55,8 +55,21 @@ patch_qemu_pci_ids() {
     pvpanic_devid="${pvpanic_devid:-0x8C4E}"         # Intel Q87 LPC Controller (innocuous)
     nvme_devid="${nvme_devid:-0xF1A8}"               # Intel SSD 660p NVMe
 
+    # Chipset / MCH spoofing IDs
+    local mch_devid ich9_lpc_devid ich9_sata_devid
+    if [[ -n "${cfg}" ]] && [[ -f "${cfg}" ]]; then
+        mch_devid="$(atd_config_get "${cfg}" chipset mch_device_id)"
+        ich9_lpc_devid="$(atd_config_get "${cfg}" chipset ich9_lpc_device_id)"
+        ich9_sata_devid="$(atd_config_get "${cfg}" chipset ich9_sata_device_id)"
+    fi
+
+    # Intel C610/X99 (Wellsburg) defaults — matches Xeon E5 v3/v4 platform
+    mch_devid="${mch_devid:-0x6F00}"               # Broadwell-EP Host Bridge/DRAM Registers
+    ich9_lpc_devid="${ich9_lpc_devid:-0x8D44}"     # C610/X99 LPC Controller
+    ich9_sata_devid="${ich9_sata_devid:-0x8D62}"   # C610/X99 sSATA AHCI Controller
+
     local count=0
-    local total=10
+    local total=13
 
     # =================================================================
     #  1. PCI_VENDOR_ID_REDHAT: 0x1b36 → Intel (0x8086)
@@ -248,6 +261,61 @@ patch_qemu_pci_ids() {
         "s/0x1111/0x5917/g" \
         "BOCHS VGA device 0x1111 → 0x5917 (Intel UHD 620)" --allow-missing
 
-    atd_ok "PCI vendor/device ID patching complete (vendor=${pci_vendor})"
+    # =================================================================
+    # 11. Q35 MCH (Memory Controller Hub) Device ID
+    # =================================================================
+    # The Q35 MCH reports as PCI device 0x29C0 (Intel Q35 Express),
+    # which HWiNFO decodes as "Intel P35 (Bearlake-P)". For an X99
+    # platform (Xeon E5 v4), change to 0x6F00 (Broadwell-EP Host Bridge).
+    #
+    # The MCH device ID is defined as PCI_DEVICE_ID_INTEL_Q35_MCH (0x29c0)
+    # in include/hw/pci-host/q35.h and used in hw/pci-host/q35.c
+
+    (( count++ )); atd_step ${count} ${total} "Q35 MCH → ${mch_devid} (Chipset spoofing)"
+    atd_sed "${src}/include/hw/pci-host/q35.h" \
+        "s/MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT.*$/MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT 0xb0000000/g" \
+        "Keep MCH PCIEXBAR default" --allow-missing
+    # Change the MCH device ID constant
+    atd_sed "${src}/include/hw/pci-host/q35.h" \
+        "s/0x29c0/${mch_devid}/g" \
+        "MCH device ID 0x29c0 → ${mch_devid}" --allow-missing
+    # Also patch any hardcoded references in the MCH source
+    atd_sed "${src}/hw/pci-host/q35.c" \
+        "s/0x29c0/${mch_devid}/g" \
+        "MCH hardcoded device ID" --allow-missing
+
+    # =================================================================
+    # 12. ICH9 LPC Bridge Device ID
+    # =================================================================
+    # ICH9 LPC reports as 0x2918 (Intel ICH9 LPC Interface Controller).
+    # For X99: 0x8D44 (Intel C610/X99 LPC Controller).
+
+    (( count++ )); atd_step ${count} ${total} "ICH9 LPC → ${ich9_lpc_devid} (C610/X99 LPC)"
+    atd_sed "${src}/include/hw/pci/pci_ids.h" \
+        "s/0x2918/${ich9_lpc_devid}/g" \
+        "ICH9 LPC device ID → ${ich9_lpc_devid}" --allow-missing
+    atd_sed "${src}/hw/isa-bus/lpc_ich9.c" \
+        "s/0x2918/${ich9_lpc_devid}/g" \
+        "ICH9 LPC hardcoded device ID" --allow-missing
+    # Also check the southbridge directory (QEMU source varies)
+    atd_sed "${src}/hw/southbridge/ich9.c" \
+        "s/0x2918/${ich9_lpc_devid}/g" \
+        "ICH9 southbridge LPC device ID" --allow-missing
+
+    # =================================================================
+    # 13. ICH9 SATA (AHCI) Device ID
+    # =================================================================
+    # ICH9 SATA AHCI reports as 0x2922 (Intel ICH9 AHCI Controller).
+    # For X99: 0x8D62 (Intel C610/X99 sSATA AHCI Controller).
+
+    (( count++ )); atd_step ${count} ${total} "ICH9 SATA → ${ich9_sata_devid} (C610/X99 AHCI)"
+    atd_sed "${src}/include/hw/pci/pci_ids.h" \
+        "s/0x2922/${ich9_sata_devid}/g" \
+        "ICH9 SATA AHCI device ID → ${ich9_sata_devid}" --allow-missing
+    atd_sed "${src}/hw/ide/ahci-pci.c" \
+        "s/0x2922/${ich9_sata_devid}/g" \
+        "ICH9 AHCI hardcoded device ID" --allow-missing
+
+    atd_ok "PCI vendor/device ID + chipset patching complete (vendor=${pci_vendor}, MCH=${mch_devid})"
     return 0
 }

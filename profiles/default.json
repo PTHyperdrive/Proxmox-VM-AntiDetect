@@ -114,6 +114,13 @@
     "_comment": "Intel Cannon Lake era IDs — replaces QEMU/Red Hat PCI fingerprints"
   },
 
+  "chipset": {
+    "mch_device_id": "0x6F00",
+    "ich9_lpc_device_id": "0x8D44",
+    "ich9_sata_device_id": "0x8D62",
+    "_comment": "Intel C610/X99 (Wellsburg) — matches Xeon E5 v3/v4 platform"
+  },
+
   "vm_config": {
     "bios": "ovmf",
     "machine": "q35",
