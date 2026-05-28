@@ -8,6 +8,9 @@
     removes them so anti-cheat and detection tools cannot find traces of a
     virtual machine.
 
+    Additionally cleans up Hyper-V driver objects, ACPI display paths,
+    UEFI NVRAM caches, and DriverStore leftovers.
+
     Must be run as Administrator.  Operations that touch HKLM:\SYSTEM keys
     owned by TrustedInstaller are executed via PsExec64 running as SYSTEM.
 
@@ -50,27 +53,47 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 # PCI vendor / device / subsystem IDs tied to QEMU, Red Hat, and VirtIO
 # Extended to cover ALL VMAware detection signatures
 $Signatures = @(
+    # === Primary PCI Vendor IDs ===
     "VEN_1AF4"          # Red Hat / VirtIO vendor
+    "VEN_1B36"          # Red Hat / QEMU PCI vendor (bridges, xHCI, etc.)
+    "VEN_1234"          # QEMU default VGA (bochs-display)
+
+    # === Device IDs ===
     "DEV_1AF4"
     "DEV_1B36"          # QEMU PCI bridge / xhci
-    "SUBSYS_11001AF4"   # VirtIO subsystem
-    "VEN_1234"          # QEMU default VGA (bochs-display)
-    "DEV_1111"          # QEMU VGA
+    "DEV_1111"          # QEMU VGA (bochs)
+    "DEV_0627"          # QEMU display adapter
+    "DEV_1D1F"          # QEMU undocumented device
+    "DEV_000C"          # QEMU PCIe Root Port
+    "DEV_000D"          # QEMU XHCI USB
+    "DEV_0100"          # QEMU QXL display
+
+    # === Subsystem IDs (VMAware checks these) ===
+    "SUBSYS_11001AF4"   # VirtIO default subsystem
+    "SUBSYS_00001AF4"   # VirtIO subsystem variant
+    "SUBSYS_00001B36"   # QEMU device subsystem
+    "SUBSYS_1AF4"       # VirtIO subvendor (partial match)
+    "SUBSYS_1B36"       # QEMU subvendor (partial match)
+    "SUBSYS_0627"       # QEMU display adapter subsystem (scoped to SUBSYS)
+
+    # === Intel device IDs that QEMU commonly emulates ===
     "VEN_8086&DEV_2934" # QEMU i82801 USB (common default)
     "VEN_8086&DEV_2918" # QEMU PIIX4 ISA bridge
     "VEN_8086&DEV_5845" # QEMU edu device (0x80865845)
-    "DEV_0627"          # QEMU display adapter
-    "DEV_1D1F"          # QEMU undocumented device
+
+    # === Linux Foundation USB ===
     "VEN_1D6B"          # Linux Foundation USB (0x1d6b)
+
+    # === String-based matches ===
     "QEMU"
     "BOCHS"
     "Red Hat"
     "VirtIO"
     "VBOX"              # catch any VirtualBox leftovers too
-    "SUBSYS_0627"       # QEMU display adapter subsystem (scoped to SUBSYS)
     "KVMKVMKVM"         # KVM CPUID string
     "ACPI\\QEMU"        # QEMU ACPI device
-    # VirtIO driver / service names (appear in Services tree PSPaths)
+
+    # === VirtIO driver / service names ===
     "viostor"           # VirtIO block storage driver
     "vioscsi"           # VirtIO SCSI driver
     "netkvm"            # VirtIO network driver
@@ -108,7 +131,7 @@ function Write-Banner {
 
   +==========================================+
   |       QEMU / VM Registry Cleanup         |
-  |  ProxMox-RealPC-DeployScripts            |
+  |  ProxMox-RealPC-DeployScripts  v2.0      |
   +==========================================+
 
 "@
@@ -239,6 +262,91 @@ function Invoke-Cleanup {
         }
     }
 
+    # -- Hyper-V Detection Cleanup ----------------------------------------
+    # VMAware/al-khaser check for Hyper-V driver objects and global objects.
+    # These are created by KVM's Hyper-V enlightenment layer even when
+    # hypervisor=off is set. We remove the driver/service traces.
+    Write-Host "`n[*] Cleaning Hyper-V driver and service traces ..." -ForegroundColor White
+
+    # Hyper-V service entries that VMAware checks for
+    $hypervServices = @(
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmgid"        # VM Generation ID
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmbus"        # VMBus
+        "HKLM:\SYSTEM\CurrentControlSet\Services\storflt"      # Storage filter
+        "HKLM:\SYSTEM\CurrentControlSet\Services\storvsc"      # Storage VSC
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmbushid"     # VMBus HID
+        "HKLM:\SYSTEM\CurrentControlSet\Services\VMBusHID"     # VMBus HID (case)
+        "HKLM:\SYSTEM\CurrentControlSet\Services\hyperkbd"     # Hyper-V keyboard
+        "HKLM:\SYSTEM\CurrentControlSet\Services\HyperVideo"   # Hyper-V video
+        "HKLM:\SYSTEM\CurrentControlSet\Services\hvservice"    # Hyper-V service
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmicheartbeat" # Hyper-V heartbeat
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmicshutdown"  # Hyper-V shutdown
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmicvss"       # Hyper-V VSS
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmicrdv"       # Hyper-V RDV
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmickvpexchange" # Hyper-V KVP
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmictimesync"   # Hyper-V timesync
+        "HKLM:\SYSTEM\CurrentControlSet\Services\vmicguestinterface" # Hyper-V guest
+    )
+
+    foreach ($svcPath in $hypervServices) {
+        if (Test-Path $svcPath) {
+            $Stats.Scanned++
+            if ($PSCmdlet.ShouldProcess($svcPath, "Delete Hyper-V service key")) {
+                Backup-Key $svcPath
+                try {
+                    Remove-Item -Path $svcPath -Recurse -Force -ErrorAction Stop
+                    Write-Host "  [DEL] $svcPath" -ForegroundColor Green
+                    $Stats.Deleted++
+                } catch {
+                    Write-Host "  [ERR] $svcPath - $_" -ForegroundColor Yellow
+                    $Stats.Failed++
+                }
+            }
+        }
+    }
+
+    # Hyper-V Enum\VMBUS entries
+    $vmbusEnum = "HKLM:\SYSTEM\CurrentControlSet\Enum\VMBUS"
+    if (Test-Path $vmbusEnum) {
+        Write-Host "  Scanning VMBUS enum ..." -ForegroundColor DarkCyan
+        Get-ChildItem -Path $vmbusEnum -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            $Stats.Scanned++
+            if ($PSCmdlet.ShouldProcess($_.PSPath, "Delete VMBUS enum key")) {
+                Backup-Key $_.PSPath
+                try {
+                    Remove-Item -Path $_.PSPath -Recurse -Force -ErrorAction Stop
+                    Write-Host "  [DEL] $($_.PSPath)" -ForegroundColor Green
+                    $Stats.Deleted++
+                } catch {
+                    Write-Host "  [ERR] $($_.PSPath) - $_" -ForegroundColor Yellow
+                    $Stats.Failed++
+                }
+            }
+        }
+    }
+
+    # Hyper-V integration components in software registry
+    $hypervSoftware = @(
+        "HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters"
+        "HKLM:\SOFTWARE\Microsoft\Virtual Machine\Auto"
+    )
+    foreach ($hvKey in $hypervSoftware) {
+        if (Test-Path $hvKey) {
+            $Stats.Scanned++
+            if ($PSCmdlet.ShouldProcess($hvKey, "Delete Hyper-V software key")) {
+                Backup-Key $hvKey
+                try {
+                    Remove-Item -Path $hvKey -Recurse -Force -ErrorAction Stop
+                    Write-Host "  [DEL] $hvKey" -ForegroundColor Green
+                    $Stats.Deleted++
+                } catch {
+                    Write-Host "  [ERR] $hvKey - $_" -ForegroundColor Yellow
+                    $Stats.Failed++
+                }
+            }
+        }
+    }
+
     # -- VMAware-specific: ACPI_SIGNATURE display path cleanup ----------
     # VMAware checks display device ACPI location paths for "#ACPI(Sxx)"
     Write-Host "`n[*] Checking display ACPI location paths ..." -ForegroundColor White
@@ -298,6 +406,31 @@ function Invoke-Cleanup {
         $Stats.Scanned++
         # Log presence - actual fix requires patched OVMF with custom logo
         Write-Host "  [INFO] Boot animation key exists - logo CRC depends on OVMF firmware" -ForegroundColor DarkCyan
+    }
+
+    # -- HARDWARE\Description\System cleanup ----------------------------
+    # Detectors query SystemBiosVersion, VideoBiosVersion etc. from here
+    Write-Host "`n[*] Cleaning HARDWARE\Description\System ..." -ForegroundColor White
+    $hwDescSystem = "HKLM:\HARDWARE\DESCRIPTION\System"
+    if (Test-Path $hwDescSystem) {
+        $hwProps = Get-ItemProperty -Path $hwDescSystem -ErrorAction SilentlyContinue
+        $vmHwPatterns = 'QEMU|BOCHS|KVM|VBOX|Virtual|VMware'
+        foreach ($prop in $hwProps.PSObject.Properties) {
+            if ($prop.Name -notmatch '^PS' -and $prop.Value -is [string] -and $prop.Value -match $vmHwPatterns) {
+                $Stats.Scanned++
+                Write-Host "  [FOUND] $($prop.Name) = $($prop.Value)" -ForegroundColor Yellow
+                if ($PSCmdlet.ShouldProcess("$hwDescSystem\$($prop.Name)", "Clear VM string")) {
+                    try {
+                        Set-ItemProperty -Path $hwDescSystem -Name $prop.Name -Value "" -Force
+                        Write-Host "  [CLR]  $($prop.Name) cleared" -ForegroundColor Green
+                        $Stats.Deleted++
+                    } catch {
+                        Write-Host "  [ERR]  $($prop.Name) - $_" -ForegroundColor Yellow
+                        $Stats.Failed++
+                    }
+                }
+            }
+        }
     }
 
     # Summary

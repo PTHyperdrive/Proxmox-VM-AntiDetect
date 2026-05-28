@@ -1,5 +1,5 @@
 {
-  "_comment": "proxmox-atd :: Default Hardware Profile (JSON) -- ASUS desktop identity",
+  "_comment": "proxmox-atd :: Default Hardware Profile (JSON) -- ASUS X99 workstation identity",
   "_version": "1.0.0",
 
   "brand": {
@@ -16,18 +16,18 @@
   },
 
   "smbios_type1": {
-    "manufacturer": "ASUS",
-    "product": "PRIME B760M-A",
-    "version": "VER:H3.7G(2022/11/29)",
+    "manufacturer": "ASUSTeK COMPUTER INC.",
+    "product": "X99-A II",
+    "version": "Rev 1.xx",
     "serial": "Default string",
     "sku": "Default string",
     "family": "Default string"
   },
 
   "smbios_type2": {
-    "manufacturer": "ASUS",
-    "product": "PRIME B760M-A",
-    "version": "VER:H3.7G(2022/11/29)",
+    "manufacturer": "ASUSTeK COMPUTER INC.",
+    "product": "X99-A II",
+    "version": "Rev 1.xx",
     "serial": "Default string",
     "asset": "Default string",
     "location": "Default string"
@@ -43,11 +43,11 @@
 
   "smbios_type4": {
     "manufacturer": "Intel(R) Corporation",
-    "version": "12th Gen Intel(R) 0000",
-    "socket_prefix": "LGA1700",
-    "max_speed": 4900,
-    "current_speed": 3800,
-    "processor_family": "0xC6",
+    "version": "Intel(R) Xeon(R) CPU E5-2696 v4 @ 2.20GHz",
+    "socket_prefix": "LGA2011-3",
+    "max_speed": 3600,
+    "current_speed": 2200,
+    "processor_family": "0xB3",
     "l1_cache_handle": "0x0039",
     "l2_cache_handle": "0x003A",
     "l3_cache_handle": "0x003B",
@@ -59,17 +59,17 @@
   "smbios_type17": {
     "serial": "DF1EC466",
     "asset": "9876543210",
-    "memory_type": "0x18",
+    "memory_type": "0x1A",
     "total_width": 64,
     "data_width": 64,
-    "minimum_voltage": 1350,
-    "maximum_voltage": 1500,
-    "configured_voltage": 1350,
+    "minimum_voltage": 1200,
+    "maximum_voltage": 1200,
+    "configured_voltage": 1200,
     "location": "0x03",
     "error_correction": "0x03",
     "speed": 3200,
-    "manufacturer": "KINGSTON",
-    "part": "SED3200U1888S",
+    "manufacturer": "Kingston",
+    "part": "KF432C16BB/16",
     "bank": "BANK 0",
     "loc_prefix": "Controller0-ChannelA-DIMM"
   },
@@ -101,6 +101,19 @@
     "rdtsc_divisor": 20
   },
 
+  "pci": {
+    "vendor_id": "0x8086",
+    "subvendor_id": "0x8086",
+    "pcie_root_port": "0xA394",
+    "xhci": "0xA36D",
+    "pci_bridge": "0x244E",
+    "pcie_bridge": "0x2448",
+    "qxl": "0x5917",
+    "pvpanic": "0x8C4E",
+    "nvme": "0xF1A8",
+    "_comment": "Intel Cannon Lake era IDs — replaces QEMU/Red Hat PCI fingerprints"
+  },
+
   "vm_config": {
     "bios": "ovmf",
     "machine": "q35",
@@ -110,6 +123,7 @@
     "cpu": "host",
     "balloon": 0,
     "ostype": "l26",
+    "scsihw": "lsi53c895a",
     "boot_order": "ide2;sata0;net0",
     "disk_size": "128G"
   }

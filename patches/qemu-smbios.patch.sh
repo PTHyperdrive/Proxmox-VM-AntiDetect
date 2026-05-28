@@ -40,8 +40,8 @@ patch_qemu_smbios() {
     proc_family="${proc_family:-0xC6}"; proc_chars="${proc_chars:-0x04}"
     voltage="${voltage:-0x8B}"; ext_clock="${ext_clock:-100}"
     l1_handle="${l1_handle:-0x0039}"; l2_handle="${l2_handle:-0x003A}"; l3_handle="${l3_handle:-0x003B}"
-    mem_type="${mem_type:-0x18}"; total_w="${total_w:-64}"; data_w="${data_w:-64}"
-    min_v="${min_v:-1350}"; max_v="${max_v:-1500}"; cfg_v="${cfg_v:-1350}"
+    mem_type="${mem_type:-0x1A}"; total_w="${total_w:-64}"; data_w="${data_w:-64}"
+    min_v="${min_v:-1200}"; max_v="${max_v:-1200}"; cfg_v="${cfg_v:-1200}"
     mem_loc="${mem_loc:-0x03}"; mem_err="${mem_err:-0x03}"
 
     local smbios_c="${src}/hw/smbios/smbios.c"

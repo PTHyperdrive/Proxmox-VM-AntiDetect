@@ -51,9 +51,9 @@ IGPU_PCI=""                      # Auto-detect if empty; usually 0000:00:02.0
 IGPU_AUDIO_PCI=""                # Auto-detect if empty; usually 0000:00:1f.3
 IGPU_GMS="0x2"                   # Pre-allocated DVMT: 0x2=64MB (must be ≥ BIOS setting)
 IGPU_ROM="ultra-1-2-qemu10.rom"  # Intel Ultra 1st/2nd gen ROM (Arrow Lake / Lunar Lake)
-SMBIOS_BOARD_MFG="Maxsun"
-SMBIOS_BOARD_PRODUCT="MS-Terminator B760M"
-SMBIOS_BOARD_VERSION="VER:H3.7G(2022/11/29)"
+SMBIOS_BOARD_MFG="ASUSTeK COMPUTER INC."
+SMBIOS_BOARD_PRODUCT="X99-A II"
+SMBIOS_BOARD_VERSION="Rev 1.xx"
 SMBIOS_BIOS_VENDOR="American Megatrends International LLC."
 SMBIOS_BIOS_VERSION="H3.7G"
 SMBIOS_BIOS_DATE="02/21/2023"
@@ -595,7 +595,7 @@ qm create "$VMID" \
     --memory "$MEMORY" \
     --balloon 0 \
     --numa 0 \
-    --scsihw virtio-scsi-single \
+    --scsihw lsi53c895a \
     --net0 "e1000,bridge=${BRIDGE},firewall=${FIREWALL}" \
     --vga "$VGA" \
     --localtime 1
