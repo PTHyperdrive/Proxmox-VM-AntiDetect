@@ -19,7 +19,41 @@ patch_edk2_brand() {
     fi
 
     local count=0
-    local total=5
+    local total=6
+
+    # -- debian/rules PCD Firmware Strings --
+    # This is the MOST CRITICAL patch: the PcdFirmwareVendor string shows up
+    # as "BIOS Version/Date" in System Information. Without this patch it reads
+    # "Proxmox distribution of EDK II" which is a dead giveaway.
+    (( count++ )); atd_step ${count} ${total} "debian/rules PCD firmware vendor/version/date"
+    local rules_file="${src}/../debian/rules"
+    if [[ -f "${rules_file}" ]]; then
+        # Read BIOS vendor info from profile (SMBIOS Type 0)
+        local bios_vendor bios_version bios_date
+        bios_vendor="$(atd_config_get "${PROFILE:-}" smbios_type0 vendor 2>/dev/null)"
+        bios_version="$(atd_config_get "${PROFILE:-}" smbios_type0 version 2>/dev/null)"
+        bios_date="$(atd_config_get "${PROFILE:-}" smbios_type0 date 2>/dev/null)"
+        bios_vendor="${bios_vendor:-American Megatrends International LLC.}"
+        bios_version="${bios_version:-${brand} BIOS}"
+        # Replace PcdFirmwareVendor (the critical "Proxmox distribution of EDK II" string)
+        if grep -q 'PcdFirmwareVendor=L"Proxmox distribution of EDK II' "${rules_file}"; then
+            sed -i "s|PcdFirmwareVendor=L\"Proxmox distribution of EDK II|PcdFirmwareVendor=L\"${bios_vendor}|g" "${rules_file}"
+            atd_debug "Replaced PcdFirmwareVendor -> '${bios_vendor}'"
+        fi
+        # Replace PcdFirmwareVersionString (version number shown in BIOS info)
+        if grep -q 'PcdFirmwareVersionString=L"$(DEB_VERSION)' "${rules_file}"; then
+            sed -i "s|PcdFirmwareVersionString=L\"\$(DEB_VERSION)|PcdFirmwareVersionString=L\"${bios_version}|g" "${rules_file}"
+            atd_debug "Replaced PcdFirmwareVersionString -> '${bios_version}'"
+        fi
+        # Replace PcdFirmwareReleaseDateString with realistic BIOS date
+        if [[ -n "${bios_date}" ]] && grep -q 'PcdFirmwareReleaseDateString=L"$(PCD_RELEASE_DATE)' "${rules_file}"; then
+            sed -i "s|PcdFirmwareReleaseDateString=L\"\$(PCD_RELEASE_DATE)|PcdFirmwareReleaseDateString=L\"${bios_date}|g" "${rules_file}"
+            atd_debug "Replaced PcdFirmwareReleaseDateString -> '${bios_date}'"
+        fi
+        atd_ok "Patched debian/rules PCD strings"
+    else
+        atd_warn "debian/rules not found at ${rules_file} -- BIOS vendor string NOT patched!"
+    fi
 
     # -- MDE Module Package (signature) --
     (( count++ )); atd_step ${count} ${total} "MdeModulePkg/MdeModulePkg.dec"

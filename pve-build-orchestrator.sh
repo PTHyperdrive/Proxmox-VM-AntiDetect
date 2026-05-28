@@ -52,6 +52,7 @@ JOBS="$(nproc 2>/dev/null || echo 4)"
 RESUME_FROM=""
 SKIP_DEPS=0
 SKIP_CLEANUP=0
+SKIP_KERNEL=0
 
 # ===== Build timestamp =====
 BUILD_TS="$(date +%Y%m%d-%H%M%S)"
@@ -113,6 +114,7 @@ while [[ $# -gt 0 ]]; do
         --resume-from)  RESUME_FROM="$2"; shift 2 ;;
         --skip-deps)    SKIP_DEPS=1; shift ;;
         --skip-cleanup) SKIP_CLEANUP=1; shift ;;
+        --skip-kernel)  SKIP_KERNEL=1; shift ;;
         --verbose)      ATD_LOG_LEVEL=4; shift ;;
         --help)         usage ;;
         *)              atd_die "Unknown option: $1" 2 ;;
@@ -143,6 +145,71 @@ run_cmd() {
     else
         eval "$@"
     fi
+}
+
+# ===== Helper: should we build this target? =====
+# Respects --skip-kernel flag when TARGET=all
+should_build_target() {
+    local t="$1"
+    if [[ "${TARGET}" == "${t}" ]]; then
+        return 0
+    fi
+    if [[ "${TARGET}" == "all" ]]; then
+        if [[ "${t}" == "kernel" ]] && (( SKIP_KERNEL )); then
+            return 1
+        fi
+        return 0
+    fi
+    return 1
+}
+
+# ===== Inject ATD Signature into .deb package =====
+# Creates a signature file + debhelper hook so the .deb installs
+# /usr/share/proxmox-atd/<pkg>.sig on the target PVE host.
+# This allows deploy scripts to detect patched packages.
+inject_atd_signature() {
+    local pkg_dir="$1"    # e.g. /tmp/atd-build/pve-qemu
+    local pkg_name="$2"   # e.g. pve-qemu-kvm
+    local sig_name="$3"   # e.g. qemu.sig
+
+    local brand
+    brand="$(atd_config_get "${PROFILE}" brand name)"
+    brand="${brand:-ASUS}"
+
+    local version="unknown"
+    if [[ -f "${pkg_dir}/Makefile" ]]; then
+        version=$(grep -oP '(?<=PACKAGE_VERSION\s=\s).*' "${pkg_dir}/Makefile" 2>/dev/null | head -1) || true
+        [[ -z "${version}" ]] && version=$(grep -oP '(?<=PKGVER\s?=\s?).*' "${pkg_dir}/Makefile" 2>/dev/null | head -1) || true
+    fi
+
+    atd_info "Injecting ATD signature into ${pkg_name} ..."
+
+    # 1) Create signature file
+    cat > "${pkg_dir}/debian/atd-signature" <<SIGEOF
+ATD_PACKAGE=${pkg_name}
+ATD_VERSION=${version:-unknown}
+ATD_BRAND=${brand}
+ATD_BUILD_TS=${BUILD_TS}
+ATD_BUILD_ID=atd-v1.0
+ATD_BUILD_ENV=${ATD_ENV}
+SIGEOF
+
+    # 2) Append debhelper hook to debian/rules (execute_after_dh_install)
+    #    This copies the sig file into the package tree during build.
+    if ! grep -q 'proxmox-atd signature' "${pkg_dir}/debian/rules" 2>/dev/null; then
+        cat >> "${pkg_dir}/debian/rules" <<RULEEOF
+
+# --- proxmox-atd signature injection ---
+execute_after_dh_install:
+	mkdir -p debian/${pkg_name}/usr/share/proxmox-atd
+	install -m 644 debian/atd-signature debian/${pkg_name}/usr/share/proxmox-atd/${sig_name}
+RULEEOF
+        atd_debug "Added execute_after_dh_install hook to debian/rules"
+    else
+        atd_skip "ATD signature hook already present in debian/rules"
+    fi
+
+    atd_ok "Signature injected: ${sig_name} (brand=${brand})"
 }
 
 # ===== Trap for cleanup on error =====
@@ -211,9 +278,15 @@ phase_preflight() {
     fi
 
     # -- RAM --
-    local total_mb
-    total_mb=$(free -m 2>/dev/null | awk '/Mem:/{print $2}')
-    atd_info "RAM: ${total_mb:-unknown}MB"
+    local total_mb="unknown"
+    if command -v free &>/dev/null; then
+        total_mb=$(free -m 2>/dev/null | awk '/Mem:/{print $2}') || true
+    elif [[ -f /proc/meminfo ]]; then
+        local mem_kb
+        mem_kb=$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null) || true
+        [[ -n "${mem_kb}" ]] && total_mb=$(( mem_kb / 1024 ))
+    fi
+    atd_info "RAM: ${total_mb}MB"
 
     # -- Validate profile --
     if [[ ! -f "${PROFILE}" ]]; then
@@ -248,7 +321,7 @@ phase_deps() {
 
     # ── Core dependency list (shared across all targets) ──
     local DEPS=(
-        build-essential git devscripts meson quilt
+        build-essential git devscripts meson quilt debhelper
         libacl1-dev libaio-dev libattr1-dev libcap-ng-dev
         libcurl4-gnutls-dev libepoxy-dev libfdt-dev libgbm-dev
         libgnutls28-dev libiscsi-dev libjpeg-dev libnuma-dev
@@ -256,8 +329,10 @@ phase_deps() {
         libseccomp-dev libslirp-dev libspice-protocol-dev
         libspice-server-dev libsystemd-dev liburing-dev
         libusb-1.0-0-dev libusbredirparser-dev libvirglrenderer-dev
+        libfuse3-dev
         python3-sphinx python3-sphinx-rtd-theme xfslibs-dev
         bc dosfstools iasl mtools nasm python3 python3-pexpect
+        python3-venv python3-wheel check
         qemu-utils uuid-dev xorriso curl
     )
 
@@ -357,7 +432,7 @@ phase_clone() {
     mkdir -p "${OUTPUT_DIR}"
 
     # QEMU
-    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target qemu; then
         if [[ ! -d "${OUTPUT_DIR}/pve-qemu" ]]; then
             atd_step 1 3 "Cloning pve-qemu ..."
             run_cmd "git clone git://git.proxmox.com/git/pve-qemu.git ${OUTPUT_DIR}/pve-qemu"
@@ -365,10 +440,31 @@ phase_clone() {
         else
             atd_skip "pve-qemu already cloned"
         fi
+        # QEMU configure uses --disable-download; meson subprojects must be pre-fetched.
+        atd_info "Downloading QEMU meson subprojects ..."
+        local _meson_ok=0
+        for _try in 1 2 3; do
+            if (cd "${OUTPUT_DIR}/pve-qemu/qemu" && meson subprojects download 2>&1); then
+                _meson_ok=1; break
+            fi
+            atd_warn "meson subprojects download attempt ${_try}/3 had errors, retrying ..."
+            sleep 2
+        done
+        if (( ! _meson_ok )); then
+            atd_warn "meson subprojects download failed after 3 attempts, trying direct git clone ..."
+            if [[ ! -d "${OUTPUT_DIR}/pve-qemu/qemu/subprojects/keycodemapdb" ]] || \
+               [[ ! -f "${OUTPUT_DIR}/pve-qemu/qemu/subprojects/keycodemapdb/data/keymaps.csv" ]]; then
+                run_cmd "rm -rf ${OUTPUT_DIR}/pve-qemu/qemu/subprojects/keycodemapdb"
+                run_cmd "git clone https://gitlab.com/qemu-project/keycodemapdb.git ${OUTPUT_DIR}/pve-qemu/qemu/subprojects/keycodemapdb || true"
+            fi
+            run_cmd "cd ${OUTPUT_DIR}/pve-qemu/qemu && meson subprojects download 2>&1 || true"
+        fi
+        # Inject ATD signature into QEMU package
+        inject_atd_signature "${OUTPUT_DIR}/pve-qemu" "pve-qemu-kvm" "qemu.sig"
     fi
 
     # EDK2
-    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target edk2; then
         if [[ ! -d "${OUTPUT_DIR}/pve-edk2-firmware" ]]; then
             atd_step 2 3 "Cloning pve-edk2-firmware ..."
             run_cmd "git clone git://git.proxmox.com/git/pve-edk2-firmware.git ${OUTPUT_DIR}/pve-edk2-firmware"
@@ -376,32 +472,78 @@ phase_clone() {
         else
             atd_skip "pve-edk2-firmware already cloned"
         fi
+        # Inject ATD signature into EDK2 package
+        inject_atd_signature "${OUTPUT_DIR}/pve-edk2-firmware" "pve-edk2-firmware-ovmf" "edk2.sig"
     fi
 
     # Kernel
-    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target kernel; then
+        # Read kernel branch from profile (default: trixie-6.17 for PVE 9)
+        local kernel_branch
+        kernel_branch="$(atd_config_get "${PROFILE}" kvm kernel_branch 2>/dev/null)"
+        kernel_branch="${kernel_branch:-trixie-6.17}"
+
         if [[ ! -d "${OUTPUT_DIR}/pve-kernel" ]]; then
-            atd_step 3 3 "Cloning pve-kernel ..."
-            run_cmd "git clone git://git.proxmox.com/git/pve-kernel.git ${OUTPUT_DIR}/pve-kernel"
+            atd_step 3 3 "Cloning pve-kernel (branch: ${kernel_branch}) ..."
+            run_cmd "git clone -b ${kernel_branch} git://git.proxmox.com/git/pve-kernel.git ${OUTPUT_DIR}/pve-kernel"
             run_cmd "cd ${OUTPUT_DIR}/pve-kernel && git submodule update --init --recursive --force"
         else
             atd_skip "pve-kernel already cloned"
         fi
+
+        # Newer pve-kernel branches (trixie+) use debian/control.in with template
+        # variables (@KVNAME@, @KVMAJMIN@, @ARCH@). The Makefile generates the
+        # real debian/control inside its BUILD_DIR, but we need a valid one at
+        # the top level for mk-build-deps to work.
+        if [[ ! -f "${OUTPUT_DIR}/pve-kernel/debian/control" ]] && \
+           [[ -f "${OUTPUT_DIR}/pve-kernel/debian/control.in" ]]; then
+            atd_info "Generating debian/control from control.in ..."
+            local _kdir="${OUTPUT_DIR}/pve-kernel"
+            local _kmaj _kmin _kpatch _krel _kvmajmin _kvname _extraversion _arch
+            _kmaj=$(grep -oP '(?<=^KERNEL_MAJ=)\S+' "${_kdir}/Makefile" | head -1)
+            _kmin=$(grep -oP '(?<=^KERNEL_MIN=)\S+' "${_kdir}/Makefile" | head -1)
+            _kpatch=$(grep -oP '(?<=^KERNEL_PATCHLEVEL=)\S+' "${_kdir}/Makefile" | head -1)
+            _krel=$(grep -oP '(?<=^KREL=)\S+' "${_kdir}/Makefile" | head -1)
+            _kvmajmin="${_kmaj}.${_kmin}"
+            _extraversion="-${_krel}-pve"
+            _kvname="${_kmaj}.${_kmin}.${_kpatch}${_extraversion}"
+            _arch="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+            atd_debug "Kernel vars: KVMAJMIN=${_kvmajmin} KVNAME=${_kvname} ARCH=${_arch}"
+            sed -e "s/@KVNAME@/${_kvname}/g" \
+                -e "s/@KVMAJMIN@/${_kvmajmin}/g" \
+                -e "s/@ARCH@/${_arch}/g" \
+                -e "s/@GRUB_RECOMMENDS@/grub-pc | grub-efi-amd64 | grub-efi-ia32 | grub-efi-arm64/g" \
+                "${_kdir}/debian/control.in" > "${_kdir}/debian/control"
+            atd_ok "Generated debian/control (kernel ${_kvname})"
+        fi
+
+        # Fix upstream Makefile bug: the grouped target rule (&:) is missing
+        # $(LINUX_TOOLS_DBG_DEB) and $(SIGNED_TEMPLATE_DEB) from the recipe list,
+        # even though they're in $(DEBS). dpkg-buildpackage produces them but Make
+        # doesn't know, causing "No rule to make target" errors.
+        local _mk="${OUTPUT_DIR}/pve-kernel/Makefile"
+        if [[ -f "${_mk}" ]] && grep -q 'LINUX_TOOLS_DEB) $(HDR_DEB) $(DST_DEB) &:' "${_mk}"; then
+            atd_info "Patching Makefile grouped target rule (upstream bug) ..."
+            sed -i 's/\$(LINUX_TOOLS_DEB) \$(HDR_DEB) \$(DST_DEB) &:/$(LINUX_TOOLS_DEB) $(LINUX_TOOLS_DBG_DEB) $(HDR_DEB) $(DST_DEB) $(SIGNED_TEMPLATE_DEB) \&:/' "${_mk}"
+            atd_debug "Added LINUX_TOOLS_DBG_DEB and SIGNED_TEMPLATE_DEB to grouped target"
+        fi
     fi
 
     # Install mk-build-deps for each
-    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target qemu; then
         atd_info "Installing QEMU build-deps ..."
         run_cmd "cd ${OUTPUT_DIR}/pve-qemu && yes | mk-build-deps --install 2>/dev/null || true"
     fi
-    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target edk2; then
         atd_info "Installing EDK2 build-deps ..."
         run_cmd "cd ${OUTPUT_DIR}/pve-edk2-firmware && yes | mk-build-deps --install 2>/dev/null || true"
     fi
-    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target kernel; then
         atd_info "Installing Kernel build-deps ..."
         run_cmd "cd ${OUTPUT_DIR}/pve-kernel && yes | mk-build-deps --install 2>/dev/null || true"
-        run_cmd "cd ${OUTPUT_DIR}/pve-kernel/submodules/zfsonlinux && mk-build-deps --install 2>/dev/null || true"
+        if [[ -d "${OUTPUT_DIR}/pve-kernel/submodules/zfsonlinux" ]]; then
+            run_cmd "cd ${OUTPUT_DIR}/pve-kernel/submodules/zfsonlinux && mk-build-deps --install 2>/dev/null || true"
+        fi
     fi
 
     atd_ok "Repositories cloned and build-deps installed"
@@ -412,9 +554,9 @@ phase_patch() {
     CURRENT_PHASE="patch"
     atd_banner "PHASE 4/8" "PATCH -- Applying Anti-Detection Modifications"
 
-    local patcher_args=(
+    # Build common patcher arguments
+    local common_args=(
         --profile "${PROFILE}"
-        --target "${TARGET}"
         --build-dir "${OUTPUT_DIR}"
         --no-backup
         --skip-deps
@@ -422,15 +564,69 @@ phase_patch() {
         --skip-build
         --skip-cleanup
     )
-
     if (( ATD_DRY_RUN )); then
-        patcher_args+=(--dry-run)
+        common_args+=(--dry-run)
     fi
     if (( ATD_LOG_LEVEL >= 4 )); then
-        patcher_args+=(--verbose)
+        common_args+=(--verbose)
     fi
 
-    bash "${SCRIPT_DIR}/atd-patcher.sh" "${patcher_args[@]}"
+    # Always iterate individual targets instead of passing "all" to the patcher.
+    # This avoids the patcher dying on missing dirs for targets we didn't clone,
+    # and keeps source dir overrides clean (each invocation gets only its own).
+    local targets_to_patch=()
+    if [[ "${TARGET}" == "all" ]]; then
+        should_build_target qemu   && targets_to_patch+=(qemu)
+        should_build_target edk2   && targets_to_patch+=(edk2)
+        should_build_target kernel && targets_to_patch+=(kernel)
+    else
+        targets_to_patch=("${TARGET}")
+    fi
+
+    for ptarget in "${targets_to_patch[@]}"; do
+        local patcher_args=("${common_args[@]}" --target "${ptarget}")
+
+        # Pass source dir overrides for the targets being patched
+        if [[ "${ptarget}" == "qemu" ]]; then
+            if [[ ! -d "${OUTPUT_DIR}/pve-qemu/qemu" ]]; then
+                atd_err "QEMU source not found: ${OUTPUT_DIR}/pve-qemu/qemu"
+                atd_die "Run the clone phase first (--resume-from clone)" 2
+            fi
+            patcher_args+=(--qemu-dir "${OUTPUT_DIR}/pve-qemu/qemu")
+        fi
+        if [[ "${ptarget}" == "edk2" ]]; then
+            if [[ ! -d "${OUTPUT_DIR}/pve-edk2-firmware/edk2" ]]; then
+                atd_err "EDK2 source not found: ${OUTPUT_DIR}/pve-edk2-firmware/edk2"
+                atd_die "Run the clone phase first (--resume-from clone)" 2
+            fi
+            patcher_args+=(--edk2-dir "${OUTPUT_DIR}/pve-edk2-firmware/edk2")
+        fi
+        if [[ "${ptarget}" == "kernel" ]]; then
+            # Auto-detect kernel source directory.
+            # PVE kernel repos use submodules/ubuntu-kernel, but the name may
+            # vary across branches. Fall back to the first directory under submodules/.
+            local _kernel_src=""
+            if [[ -d "${OUTPUT_DIR}/pve-kernel/submodules/ubuntu-kernel" ]]; then
+                _kernel_src="${OUTPUT_DIR}/pve-kernel/submodules/ubuntu-kernel"
+            else
+                # Try to find any kernel source tree under submodules/
+                _kernel_src="$(find "${OUTPUT_DIR}/pve-kernel/submodules" -maxdepth 1 -type d -name '*kernel*' 2>/dev/null | head -1)"
+                if [[ -z "${_kernel_src}" ]]; then
+                    _kernel_src="$(find "${OUTPUT_DIR}/pve-kernel/submodules" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1)"
+                fi
+            fi
+            if [[ -z "${_kernel_src}" ]] || [[ ! -d "${_kernel_src}" ]]; then
+                atd_err "Kernel source submodule not found under: ${OUTPUT_DIR}/pve-kernel/submodules/"
+                atd_err "Available contents:"
+                ls -la "${OUTPUT_DIR}/pve-kernel/submodules/" 2>/dev/null | while read -r _l; do atd_err "  ${_l}"; done
+                atd_die "Kernel submodule may not have been initialized. Re-run clone phase." 2
+            fi
+            atd_info "Kernel source directory: ${_kernel_src}"
+            patcher_args+=(--kernel-dir "${_kernel_src}")
+        fi
+
+        bash "${SCRIPT_DIR}/atd-patcher.sh" "${patcher_args[@]}"
+    done
 
     atd_ok "Patching phase complete"
 }
@@ -442,22 +638,35 @@ phase_build() {
 
     atd_timer_start
 
-    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target qemu; then
         atd_separator "Building pve-qemu-kvm"
         run_cmd "cd ${OUTPUT_DIR}/pve-qemu && make clean 2>/dev/null || true"
         run_cmd "cd ${OUTPUT_DIR}/pve-qemu && make -j${JOBS}"
         atd_ok "QEMU build complete"
     fi
 
-    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target edk2; then
         atd_separator "Building pve-edk2-firmware-ovmf"
+
+        # If we just built QEMU (target=all), install the freshly-built .deb
+        # so EDK2's dpkg-checkbuilddeps finds pve-qemu-kvm and firmware tests
+        # use the patched QEMU binary.
+        if [[ "${TARGET}" == "all" ]] && ! (( SKIP_KERNEL )) || [[ "${TARGET}" == "all" ]]; then
+            local qemu_deb
+            qemu_deb="$(find "${OUTPUT_DIR}/pve-qemu" -maxdepth 1 -name 'pve-qemu-kvm_*.deb' ! -name '*dbgsym*' 2>/dev/null | head -1)"
+            if [[ -n "${qemu_deb}" ]]; then
+                atd_info "Installing freshly-built QEMU .deb for EDK2 build ..."
+                run_cmd "dpkg -i '${qemu_deb}' 2>/dev/null || apt-get install -f -y -qq 2>/dev/null || true"
+            fi
+        fi
+
         # EDK2 debian/rules spawns multi-arch builds that share BaseTools.
         # Top-level -jN causes race conditions. Let each arch handle parallelism.
         run_cmd "cd ${OUTPUT_DIR}/pve-edk2-firmware && make"
         atd_ok "EDK2 build complete"
     fi
 
-    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target kernel; then
         atd_separator "Building pve-kernel"
         run_cmd "cd ${OUTPUT_DIR}/pve-kernel && make -j${JOBS}"
         atd_ok "Kernel build complete"
@@ -474,17 +683,17 @@ phase_package() {
     local artifacts="${OUTPUT_DIR}/artifacts"
     run_cmd "mkdir -p ${artifacts}"
 
-    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target qemu; then
         run_cmd "find ${OUTPUT_DIR}/pve-qemu -name '*.deb' ! -name '*dbgsym*' -exec cp {} ${artifacts}/ \\;"
-        run_cmd "cp ${OUTPUT_DIR}/qemu-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
+        run_cmd "cp ${OUTPUT_DIR}/pve-qemu/qemu-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
     fi
 
-    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target edk2; then
         run_cmd "find ${OUTPUT_DIR}/pve-edk2-firmware -name '*.deb' ! -name '*legacy*' ! -name '*aarch64*' ! -name '*deps*' ! -name '*riscv*' -exec cp {} ${artifacts}/ \\;"
-        run_cmd "cp ${OUTPUT_DIR}/edk2-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
+        run_cmd "cp ${OUTPUT_DIR}/pve-edk2-firmware/edk2-autoGenPatch.patch ${artifacts}/ 2>/dev/null || true"
     fi
 
-    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target kernel; then
         run_cmd "find ${OUTPUT_DIR}/pve-kernel -name '*.deb' -exec cp {} ${artifacts}/ \\;"
         run_cmd "find ${OUTPUT_DIR}/pve-kernel -name 'kvm*.ko' -exec cp {} ${artifacts}/ \\;"
     fi
@@ -510,7 +719,7 @@ phase_verify() {
     local artifacts="${OUTPUT_DIR}/artifacts"
     local errors=0
 
-    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target qemu; then
         if ls "${artifacts}"/pve-qemu-kvm_*.deb 1>/dev/null 2>&1; then
             atd_ok "QEMU .deb package found"
         else
@@ -519,7 +728,7 @@ phase_verify() {
         fi
     fi
 
-    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target edk2; then
         if ls "${artifacts}"/pve-edk2-firmware-ovmf_*.deb 1>/dev/null 2>&1; then
             atd_ok "EDK2 .deb package found"
         else
@@ -528,7 +737,7 @@ phase_verify() {
         fi
     fi
 
-    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target kernel; then
         if ls "${artifacts}"/pve-kernel-*.deb 1>/dev/null 2>&1 || \
            ls "${artifacts}"/kvm.ko 1>/dev/null 2>&1; then
             atd_ok "Kernel artifacts found"
@@ -556,20 +765,27 @@ phase_cleanup() {
         return 0
     fi
 
-    if [[ "${TARGET}" == "qemu" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target qemu; then
         atd_info "Resetting pve-qemu ..."
         run_cmd "cd ${OUTPUT_DIR}/pve-qemu/qemu && git checkout . 2>/dev/null || true"
         run_cmd "cd ${OUTPUT_DIR}/pve-qemu && git checkout . 2>/dev/null || true"
     fi
 
-    if [[ "${TARGET}" == "edk2" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target edk2; then
         atd_info "Resetting pve-edk2-firmware ..."
         run_cmd "cd ${OUTPUT_DIR}/pve-edk2-firmware/edk2 && git checkout . 2>/dev/null || true"
     fi
 
-    if [[ "${TARGET}" == "kernel" ]] || [[ "${TARGET}" == "all" ]]; then
+    if should_build_target kernel; then
         atd_info "Resetting pve-kernel ..."
-        run_cmd "cd ${OUTPUT_DIR}/pve-kernel/submodules/ubuntu-kernel && git checkout . 2>/dev/null || true"
+        # Auto-detect kernel submodule dir (same logic as phase_patch)
+        local _ksrc="${OUTPUT_DIR}/pve-kernel/submodules/ubuntu-kernel"
+        if [[ ! -d "${_ksrc}" ]]; then
+            _ksrc="$(find "${OUTPUT_DIR}/pve-kernel/submodules" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1)"
+        fi
+        if [[ -n "${_ksrc}" ]] && [[ -d "${_ksrc}" ]]; then
+            run_cmd "cd ${_ksrc} && git checkout . 2>/dev/null || true"
+        fi
     fi
 
     atd_ok "Cleanup complete"

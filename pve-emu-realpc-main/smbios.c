@@ -25,11 +25,21 @@
 #include "system/system.h"
 #include "qemu/uuid.h"
 #include "hw/firmware/smbios.h"
-#include "hw/loader.h"
-#include "hw/boards.h"
+#include "hw/core/loader.h"
+#include "hw/core/boards.h"
 #include "hw/pci/pci_bus.h"
 #include "hw/pci/pci_device.h"
 #include "smbios_build.h"
+
+/*
+ * Suppress -Werror=unused-* for this file: the custom SMBIOS extended types
+ * (AICodo additions) define variables, option tables, and builder functions
+ * that are all referenced later in the file but GCC's -Werror promotion
+ * treats forward-referenced statics as unused at declaration point.
+ */
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
 
 /*
  * SMBIOS tables provided by user with '-smbios file=<foo>' option

@@ -114,7 +114,7 @@ patch_kernel_rdtsc() {
 
     # -- handle_rdtsc + handle_rdtscp + handle_umwait + handle_tpause --
     (( count++ )); atd_step ${count} ${total} "vmx.c: RDTSC/RDTSCP handler functions"
-    if ! atd_already_patched "${vmx_c}" "handle_rdtsc"; then
+    if ! atd_already_patched "${vmx_c}" "print_once_rdtsc"; then
         atd_sed "${vmx_c}" \
             's/static int handle_notify/static u32 print_once_rdtsc = 1;\nstatic int handle_rdtsc(struct kvm_vcpu \*vcpu) {\n\tu64 offset = vcpu->arch.tsc_offset;\n\tu64 ratio = vcpu->arch.tsc_scaling_ratio;\n\tu64 rdtsc_fake;\n\tif(print_once_rdtsc){\n\t\tprintk(KERN_ALERT "[handle_rdtsc] vmx.c fake rdtsc vmx function is working AICodo \\n");\n\t\tprint_once_rdtsc = 0;\n\t}\n\tif (vmx_get_cpl(vcpu) != 0 || !is_protmode(vcpu)){ratio \/= 4;}\n\trdtsc_fake = kvm_scale_tsc0(rdtsc(), ratio) + offset;\n\tvcpu->arch.regs[VCPU_REGS_RAX] = rdtsc_fake \& -1u;\n\tvcpu->arch.regs[VCPU_REGS_RDX] = (rdtsc_fake >> 32) \& -1u;\n\treturn skip_emulated_instruction(vcpu);\n}\nstatic u32 print_once_rdtscp = 1;\nstatic int handle_rdtscp(struct kvm_vcpu \*vcpu) {\n\tif(print_once_rdtscp){\n\t\tprintk(KERN_ALERT "[handle_rdtscp] vmx.c fake rdtscp vmx function is working AICodo\\n");\n\t\tprint_once_rdtscp = 0;\n\t}\n\tvcpu->arch.regs[VCPU_REGS_RCX] = vmcs_read16(VIRTUAL_PROCESSOR_ID);\n\treturn handle_rdtsc(vcpu);\n}\n\nstatic int handle_umwait(struct kvm_vcpu *vcpu){return skip_emulated_instruction(vcpu);}\nstatic int handle_tpause(struct kvm_vcpu *vcpu){return skip_emulated_instruction(vcpu);}\nstatic int handle_notify/g' \
             "Add RDTSC/RDTSCP/UMWAIT/TPAUSE handler functions"

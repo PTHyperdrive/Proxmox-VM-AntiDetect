@@ -329,6 +329,14 @@ phase_clone() {
         if [[ -d "${_kdir}/submodules/zfsonlinux" ]]; then
             run_cmd "cd ${_kdir}/submodules/zfsonlinux && mk-build-deps --install 2>/dev/null || true"
         fi
+
+        # Fix upstream Makefile bug: grouped target rule (&:) is missing
+        # $(LINUX_TOOLS_DBG_DEB) and $(SIGNED_TEMPLATE_DEB).
+        local _mk="${_kdir}/Makefile"
+        if [[ -f "${_mk}" ]] && grep -q 'LINUX_TOOLS_DEB) $(HDR_DEB) $(DST_DEB) &:' "${_mk}"; then
+            atd_info "Patching Makefile grouped target rule (upstream bug) ..."
+            sed -i 's/\$(LINUX_TOOLS_DEB) \$(HDR_DEB) \$(DST_DEB) &:/$(LINUX_TOOLS_DEB) $(LINUX_TOOLS_DBG_DEB) $(HDR_DEB) $(DST_DEB) $(SIGNED_TEMPLATE_DEB) \&:/' "${_mk}"
+        fi
     fi
 
     atd_ok "Repositories ready"
@@ -365,8 +373,11 @@ phase_patch() {
 
         # Generate diff for reference
         if (( ! ATD_DRY_RUN )); then
+            local _qemu_patch_dir
+            _qemu_patch_dir="$(dirname "${QEMU_DIR}")"
+            mkdir -p "${_qemu_patch_dir}"
             pushd "${QEMU_DIR}" > /dev/null
-            git diff --submodule=diff > "${RESOURCE_QEMU}/pve-qemu/qemu-autoGenPatch.patch" 2>/dev/null || true
+            git diff --submodule=diff > "${_qemu_patch_dir}/qemu-autoGenPatch.patch" 2>/dev/null || true
             popd > /dev/null
             atd_info "Generated qemu-autoGenPatch.patch"
         fi
@@ -428,8 +439,11 @@ open(f, 'w').write(c)
 
         # Generate diff for reference
         if (( ! ATD_DRY_RUN )); then
+            local _edk2_patch_dir
+            _edk2_patch_dir="$(dirname "${EDK2_DIR}")"
+            mkdir -p "${_edk2_patch_dir}"
             pushd "${EDK2_DIR}" > /dev/null
-            git diff > "${RESOURCE_EDK2}/pve-edk2-firmware/edk2-autoGenPatch.patch" 2>/dev/null || true
+            git diff > "${_edk2_patch_dir}/edk2-autoGenPatch.patch" 2>/dev/null || true
             popd > /dev/null
             atd_info "Generated edk2-autoGenPatch.patch"
         fi
@@ -451,8 +465,11 @@ open(f, 'w').write(c)
 
         # Generate diff for reference
         if (( ! ATD_DRY_RUN )); then
+            local _kernel_patch_dir
+            _kernel_patch_dir="$(dirname "$(dirname "${KERNEL_DIR}")")"
+            mkdir -p "${_kernel_patch_dir}"
             pushd "${KERNEL_DIR}" > /dev/null
-            git diff > "${RESOURCE_KERNEL}/pve-kernel/kernel-autoGenPatch.patch" 2>/dev/null || true
+            git diff > "${_kernel_patch_dir}/kernel-autoGenPatch.patch" 2>/dev/null || true
             popd > /dev/null
             atd_info "Generated kernel-autoGenPatch.patch"
         fi
