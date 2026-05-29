@@ -53,6 +53,7 @@ RESUME_FROM=""
 SKIP_DEPS=0
 SKIP_CLEANUP=0
 SKIP_KERNEL=0
+ATD_DEBUG=0
 
 # ===== Build timestamp =====
 BUILD_TS="$(date +%Y%m%d-%H%M%S)"
@@ -85,6 +86,7 @@ Options:
   --skip-deps           Skip dependency installation
   --skip-cleanup        Keep build directories after completion
   --verbose             Enable debug logging
+  --debug               Force -j1 builds + raw output to debug log
   --help                Show this help
 
 Phases: ${PHASES[*]}
@@ -116,6 +118,7 @@ while [[ $# -gt 0 ]]; do
         --skip-cleanup) SKIP_CLEANUP=1; shift ;;
         --skip-kernel)  SKIP_KERNEL=1; shift ;;
         --verbose)      ATD_LOG_LEVEL=4; shift ;;
+        --debug)        ATD_DEBUG=1; JOBS=1; ATD_LOG_LEVEL=4; shift ;;
         --help)         usage ;;
         *)              atd_die "Unknown option: $1" 2 ;;
     esac
@@ -527,6 +530,58 @@ phase_clone() {
             sed -i 's/\$(LINUX_TOOLS_DEB) \$(HDR_DEB) \$(DST_DEB) &:/$(LINUX_TOOLS_DEB) $(LINUX_TOOLS_DBG_DEB) $(HDR_DEB) $(DST_DEB) $(SIGNED_TEMPLATE_DEB) \&:/' "${_mk}"
             atd_debug "Added LINUX_TOOLS_DBG_DEB and SIGNED_TEMPLATE_DEB to grouped target"
         fi
+
+        # Fix missing signing-template stubs (needed by debian/rules install phase).
+        # The trixie-6.14 branch expects debian/signing-template/ with several files
+        # for secure-boot signing. We don't sign, so create minimal stubs.
+        local _st="${OUTPUT_DIR}/pve-kernel/debian/signing-template"
+        if [[ -d "${OUTPUT_DIR}/pve-kernel/debian" ]] && [[ ! -f "${_st}/rules" ]]; then
+            atd_info "Creating signing-template stubs (not signing) ..."
+            mkdir -p "${_st}/source"
+            # Minimal debian/rules for the signing template
+            cat > "${_st}/rules" <<'STRULES'
+#!/usr/bin/make -f
+%:
+	dh $@
+STRULES
+            chmod +x "${_st}/rules"
+            # Minimal control file
+            cat > "${_st}/control" <<'STCONTROL'
+Source: proxmox-kernel-signed
+Section: kernel
+Priority: optional
+Maintainer: Proxmox Support Team <support@proxmox.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+
+Package: proxmox-kernel-signed
+Architecture: amd64
+Description: Proxmox kernel (signed stub)
+STCONTROL
+            # Minimal changelog
+            cat > "${_st}/changelog" <<STCLOG
+proxmox-kernel-signed (1.0) stable; urgency=low
+
+  * Stub package for unsigned build
+
+ -- ATD Builder <atd@localhost>  $(date -R)
+STCLOG
+            # Empty maintainer scripts
+            for _script in prerm postrm postinst; do
+                cat > "${_st}/${_script}" <<STSCRIPT
+#!/bin/sh
+exit 0
+STSCRIPT
+                chmod +x "${_st}/${_script}"
+            done
+            # SOURCE file
+            echo "proxmox-kernel" > "${_st}/SOURCE"
+            # source/format
+            echo "3.0 (native)" > "${_st}/source/format"
+            # files.json (lists files to sign — empty for unsigned builds)
+            echo '[]' > "${_st}/files.json"
+            atd_debug "Created signing-template stubs"
+        fi
     fi
 
     # Install mk-build-deps for each
@@ -636,12 +691,28 @@ phase_build() {
     CURRENT_PHASE="build"
     atd_banner "PHASE 5/8" "BUILD -- Compiling Packages"
 
+    # Debug mode: raw output to a log file for easy error diagnosis
+    local debug_log=""
+    if (( ATD_DEBUG )); then
+        debug_log="${OUTPUT_DIR}/atd-debug-build-${BUILD_TS}.log"
+        atd_info "DEBUG MODE: -j1, raw output → ${debug_log}"
+    fi
+
     atd_timer_start
 
     if should_build_target qemu; then
         atd_separator "Building pve-qemu-kvm"
         run_cmd "cd ${OUTPUT_DIR}/pve-qemu && make clean 2>/dev/null || true"
-        run_cmd "cd ${OUTPUT_DIR}/pve-qemu && make -j${JOBS}"
+        if (( ATD_DEBUG )); then
+            ( cd "${OUTPUT_DIR}/pve-qemu" && make -j1 2>&1 ) | tee -a "${debug_log}"
+            local rc=${PIPESTATUS[0]}
+            if (( rc != 0 )); then
+                atd_err "QEMU build failed (debug log: ${debug_log})"
+                return ${rc}
+            fi
+        else
+            run_cmd "cd ${OUTPUT_DIR}/pve-qemu && make -j${JOBS}"
+        fi
         atd_ok "QEMU build complete"
     fi
 
@@ -668,7 +739,21 @@ phase_build() {
 
     if should_build_target kernel; then
         atd_separator "Building pve-kernel"
-        run_cmd "cd ${OUTPUT_DIR}/pve-kernel && make -j${JOBS}"
+        if (( ATD_DEBUG )); then
+            atd_info "Building kernel with make -j1 (debug mode) ..."
+            ( cd "${OUTPUT_DIR}/pve-kernel" && make -j1 2>&1 ) | tee -a "${debug_log}"
+            local rc=${PIPESTATUS[0]}
+            if (( rc != 0 )); then
+                atd_err "Kernel build failed. Last 50 error lines:"
+                grep -iE 'error:|fatal:|undefined|implicit|undeclared|redefinition|conflict' "${debug_log}" | tail -50 | while read -r line; do
+                    atd_err "  ${line}"
+                done
+                atd_err "Full debug log: ${debug_log}"
+                return ${rc}
+            fi
+        else
+            run_cmd "cd ${OUTPUT_DIR}/pve-kernel && make -j${JOBS}"
+        fi
         atd_ok "Kernel build complete"
     fi
 

@@ -14,12 +14,12 @@ MOUNT_OUTPUT="/build/build-output"
 echo "[>>] Building in container-internal directory: ${INTERNAL_BUILD}"
 
 # Run the orchestrator with internal build dir
+# Capture the real exit code without aborting (set -e is off, so this is safe)
+BUILD_RC=0
 bash /build/pve-build-orchestrator.sh \
     --skip-deps \
     --output "${INTERNAL_BUILD}" \
-    "$@" || true
-
-BUILD_RC=${PIPESTATUS[0]:-$?}
+    "$@" || BUILD_RC=$?
 
 # Copy artifacts to mounted volume (if mount exists)
 if [[ -d "${MOUNT_OUTPUT}" ]]; then

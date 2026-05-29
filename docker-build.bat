@@ -152,17 +152,16 @@ if %FW_RC% equ 0 (
 REM ── Wait for Kernel container ──
 echo.
 echo [^>^>] Waiting for kernel build to complete ...
-docker wait "%KN_CONTAINER%" > "%SCRIPT_DIR%build-output\kernel-exit-code.tmp" 2>&1
-set /p KN_RC=<"%SCRIPT_DIR%build-output\kernel-exit-code.tmp"
+for /f "tokens=*" %%i in ('docker wait "%KN_CONTAINER%"') do set "KN_RC=%%i"
+if not defined KN_RC set "KN_RC=1"
 
-REM ── Show kernel logs (last 50 lines) ──
+REM ── Show kernel logs (last 80 lines) ──
 echo.
-echo [^>^>] Kernel build logs (last 30 lines):
-docker logs --tail 30 "%KN_CONTAINER%" 2>&1
+echo [^>^>] Kernel build logs (last 80 lines):
+docker logs --tail 80 "%KN_CONTAINER%" 2>&1
 
 REM ── Clean up kernel container ──
 docker rm "%KN_CONTAINER%" >nul 2>&1
-del "%SCRIPT_DIR%build-output\kernel-exit-code.tmp" 2>nul
 
 REM ── Report results ──
 echo.
@@ -174,13 +173,13 @@ echo.
 if %FW_RC% equ 0 (
     echo [OK] QEMU + EDK2:  SUCCESS
 ) else (
-    echo [XX] QEMU + EDK2:  FAILED (exit code %FW_RC%)
+    echo [XX] QEMU + EDK2:  FAILED (exit code %FW_RC%^)
 )
 
-if "%KN_RC%"=="0" (
+if %KN_RC% equ 0 (
     echo [OK] Kernel:        SUCCESS
 ) else (
-    echo [XX] Kernel:        FAILED (exit code %KN_RC%)
+    echo [XX] Kernel:        FAILED (exit code %KN_RC%^)
 )
 
 echo.
@@ -193,5 +192,5 @@ if exist "%OUTPUT_DIR%\artifacts" (
 
 REM ── Exit with combined result ──
 if %FW_RC% neq 0 exit /b %FW_RC%
-if "%KN_RC%" neq "0" exit /b 1
+if %KN_RC% neq 0 exit /b 1
 exit /b 0

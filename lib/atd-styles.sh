@@ -191,14 +191,18 @@ atd_error_detail() {
 }
 
 # ===== Sed Wrapper with Verification =====
-# Usage: atd_sed <file> <pattern> <description> [--allow-missing]
-# Runs sed -i, then verifies the replacement landed.
+# Usage: atd_sed <file> <pattern> <description> [--allow-missing|--warn-only]
+# Runs sed -i, then verifies the replacement actually changed the file.
+# Returns 1 if the pattern didn't match (no substitution made).
+# Flags:
+#   --allow-missing   File not found is OK (return 0)
+#   --warn-only       Log warning instead of error on no-match (return 0)
 # In dry-run mode, prints the command without executing.
 atd_sed() {
     local file="$1"
     local pattern="$2"
     local desc="$3"
-    local allow_missing="${4:-}"
+    local flag="${4:-}"
 
     if (( ATD_DRY_RUN )); then
         atd_dry "sed -i '${pattern}' ${file}"
@@ -207,7 +211,7 @@ atd_sed() {
     fi
 
     if [[ ! -f "${file}" ]]; then
-        if [[ "${allow_missing}" == "--allow-missing" ]]; then
+        if [[ "${flag}" == "--allow-missing" ]]; then
             atd_skip "File not found (allowed): ${file}"
             return 0
         else
@@ -216,12 +220,29 @@ atd_sed() {
         fi
     fi
 
+    # Capture checksum before sed to detect no-op
+    local hash_before hash_after
+    hash_before=$(md5sum "${file}" | cut -d' ' -f1)
+
     sed -i "${pattern}" "${file}"
     local rc=$?
 
     if (( rc != 0 )); then
-        atd_err "sed failed on ${file}: ${desc}"
+        atd_err "sed syntax/runtime error on ${file}: ${desc}"
         return 1
+    fi
+
+    hash_after=$(md5sum "${file}" | cut -d' ' -f1)
+
+    if [[ "${hash_before}" == "${hash_after}" ]]; then
+        if [[ "${flag}" == "--warn-only" ]]; then
+            atd_warn "sed pattern did not match (non-fatal): ${desc} in $(basename "${file}")"
+            return 0
+        else
+            atd_err "sed pattern did not match anything in $(basename "${file}"): ${desc}"
+            atd_err "  The anchor text may have changed in this kernel version."
+            return 1
+        fi
     fi
 
     atd_debug "Patched: ${desc} in $(basename "${file}")"
